@@ -102,8 +102,32 @@ void loop() {
 	}
 	
 	if (reboot_flag) {
-		Serial.println("Rebooting device");
+		Serial.println(F("Rebooting device"));
 		delay(10000);
 		soft_restart();
 	}
+}
+
+void InitHardware(void) {
+	// Start Serial editor
+	Serial.begin(9600);
+	
+	// Specify EEPROM Block
+	// Find a better saving mechanism than EEPROM
+	
+	Serial.println(F("Setting up the hardware"));
+	
+	// prepare the PUMP control GPIO
+	pinMode(PUMP, OUTPUT);
+	digitalWrite(PUMP, LOW);
+	
+	// POWER ON the GSM module
+	while(!sim900.init()) {
+		Serial.println(F("Initialisation error"));
+		delay(1000);
+		soft_restart();
+	}
+	
+	
+	
 }
