@@ -53,12 +53,12 @@ version 0.1
 
 // Global Varables
 bool reboot_flag = false;
-bool auth_flag = false;
+// bool auth_flag = false; // not required
 bool sms_reply_flag = false;
 bool data_flag = false;
 bool pump_status_flag = false;
 bool inComing = false;
-char password = "abcdef";  // Default password
+String password = "abcdef";  // Default password
 
 // Create an instance of SMS and call
 SMSGSM sms;
@@ -97,7 +97,12 @@ void loop() {
 		// +CMTI: "SM", 2
 		else if(NULL != (s = strstr(gprsBuffer,"+CMTI: \"SM\""))) { 
 			// Put the SMS handling code here
-			checkSMSContent			
+			char message[MESSAGE_LENGTH];
+			int messageIndex = atoi(s + 12);
+			gprs.readSMS(messageIndex, message, MESSAGE_LENGTH);
+			Serial.println("Recv Message: ");
+			Serial.println(message);
+			checkSMSContent(message);		
 		}
 		sim900_clean_buffer(gprsBuffer,32);
 		inComing = false;
@@ -183,13 +188,12 @@ void SMSServiceSetup(void) {
 
 void calculateRings(void) {
 	int counter = 1;
-	int state;
-	int which_pump;
+	int state = -1;
 	
 	sim900_clean_buffer(gprsBuffer,32);
 	sim900_read_buffer(gprsBuffer,32,DEFAULT_TIMEOUT);
 	// count the number of rings till you get RELEASE
-	while(strstr(gprsBuffer,"RELEASE")) != NULL) {
+	while(strstr(gprsBuffer,"RELEASE")) == NULL) {
 		sim900_clean_buffer(gprsBuffer,32);
 		sim900_read_buffer(gprsBuffer,32,DEFAULT_TIMEOUT);
 		if(NULL != strstr(gprsBuffer,"RING")) {
@@ -200,21 +204,18 @@ void calculateRings(void) {
 	// Check the number of rings
 	switch (counter){
 		case RINGS_TURN_ON:
-			which_pump = PUMP;
 			state = 1;
-			UpdateResource(which_pump, state);
+			UpdateResource(state);
 			break;
 			
 		case RINGS_TURN_OFF:
-			which_pump = PUMP;
 			state = 0;
-			UpdateResource(which_pump, state);
+			UpdateResource(state);
 			break;
 			
 		case RINGS_STATUS:
-			which_pump = PUMP;
 			state = -2;
-			UpdateResource(which_pump,state);
+			UpdateResource(state);
 			break;
 			
 		default:
@@ -224,20 +225,90 @@ void calculateRings(void) {
 	
 }
 
-void UpdateResource(int which_pump, int state) {
+void UpdateResource(int state) {
 	if(state >= 0) {
-		digitalWrite(which_pump, state);
+		digitalWrite(PUMP, state);
+		if(sms_reply_flag) {
+			// send SMS
+			String reply = "TURNED ";
+			reply += (state > 0) ? "ON" : "OFF";
+			Serial.println(F(reply));
+			gsm.sendSMS(1, reply);
+		}
 	}
 	
 	else if(state == -2) {
 		if(sms_reply_flag) {
-			String response = "STATUS";
-			response += (digitalRead(which_pump) > 0) ? "ON" : "OFF";
+			String reply = "STATUS";
+			reply += (digitalRead(PUMP) > 0) ? "ON" : "OFF";
 			// Send SMS
-			Serial.println(F("Sending STATUS SMS"));
+			Serial.println(reply);
 			sim900.sendSMS(number, response.c_str());
 		}
 	}	
 }
 
-
+void checkSMSContent(char* message) {
+	int state = -1;
+	// if string contains AUTH then add the mobile number to authenticated
+	// get SMS if sent from authorized number
+	char position = gsm.IsSMSPresent(SMS_UNREAD);
+	
+	if(position) {
+		// read SMS content
+		gsm.GetSMS(position, phone_num, sms_text, 100);
+		String SMSContent = String(sms_text);
+		SMSContent.toUpperCase();
+		
+		if(SMSContent.indexOf("AUTH") != -1) {			
+			// check the password
+			// AUTH 1234567890 abcdef
+			if(SMSContent.substring(16,22) == "abcdef") {
+				// save the mobile number as authorized number
+				
+			}
+		}
+		else if(SMSContent.indexOf("UNAUTH") != -1) {
+			// check for password
+			// UNAUTH 1234567890 abcdef
+			if(SMSContent.substring(16,22) == "abcdef") {
+				// delete the mobile number from memory
+			}
+			/*else if(check for SMS sending number) {
+				if the number is authorized then delete the specified mobile number
+			} */
+		}
+		else if(SMSContent.indexOf("SMS ENABLE") != -1) {
+			sms_reply_flag = true;
+			// send SMS
+			// gsm.sendSMS(1, "SMS ENABLED");
+		}
+		else if(SMSContent.indexOf("SMS DISABLE") != -1) {
+			sms_reply_flag = false;
+			// send SMS
+			// gsm.sendSMS(1, "SMS DISABLED");
+		}
+		else if(SMSContent.indexOf("DATA ENABLE") != -1) {
+			data_flag = true;
+			// send SMS
+			// gsm.sendSMS(1, "DATA ENABLED");
+		}
+		else if(SMSContent.indexOf("DATA DISABLE") != -1) {
+			data_flag = false;
+			// send SMS
+			// gsm.sendSMS(1, "DATA DISABLED");
+		}
+		else if(SMSContent.indexOf("TURN ON") != -1) {
+			state = 1;
+			UpdateResource(state);
+		}
+		else if(SMSContent.indexOf("TURN OFF") != -1) {
+			state = 0;
+			UpdateResource(state);
+		}
+		else if(SMSContent.indexOf("STATUS") != -1) {
+			state = -2;
+			UpdateResource(state);
+		}
+	}
+}
