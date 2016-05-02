@@ -1,0 +1,6 @@
+memory usage:
+
+500: magic byte
+1: PBEntryIndex
+2: smsReplyFlag
+3: dataFlag

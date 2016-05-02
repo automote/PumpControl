@@ -54,13 +54,14 @@ version 0.1
 #define RINGS_STATUS		7
 
 // Global Varables
-bool reboot_flag = false;
+bool rebootFlag = false;
 //bool auth_flag = false;
-bool sms_reply_flag = false;
-bool data_flag = false;
+bool smsReplyFlag = false;
+bool dataFlag = false;
 //bool pump_status_flag = false;
 bool inComing = false;
 String password = "abcdef";  // Default password
+unsigned int PBEntryIndex;
 
 // Create an instance of SMS and call
 //SMSGSM sms;
@@ -117,7 +118,7 @@ void loop() {
 		inComing = false;
 	}
 	
-	if (reboot_flag) {
+	if (rebootFlag) {
 		Serial.println(F("Rebooting device"));
 		delay(10000);
 		soft_restart();
@@ -131,7 +132,10 @@ void InitHardware(void) {
 	// Specify EEPROM Block
 	EEPROM.begin(512);
 	delay(10);
-	
+	if (EEPROM.read(500) != 786) {
+		//if not load default config files to EEPROM
+		writeInitalConfig();
+	}
 	Serial.println(F("Setting up the hardware"));
 	
 	// prepare the PUMP control GPIO
@@ -149,6 +153,12 @@ void InitHardware(void) {
 	// Sent ATE0
 	// Send AT+CLIP=1
 	
+}
+
+void writeInitalConfig(void) {
+	EEPROM.write(500, 786);
+	EEPROM.write(1, 1); // Set default PBEntryIndex = 10
+	EEPROM.write(2, 0); // SMS Reply disabled
 }
 
 void SIMCardSetup(void) {
@@ -176,8 +186,8 @@ void SIMCardSetup(void) {
 	
 	// Check for SIM registration
 	int registered, networkType;
-	// Send AT+CREG
-	//registered = atoi(x); // will return 0 or 5 if registered
+	// Send AT+CREG?
+	//registered = atoi(x); // will return 1 or 5 if registered
 	if(registered == 0 || registered == 5) {
 		Serial.println(F("SIM is registered"));
 	}
@@ -185,6 +195,9 @@ void SIMCardSetup(void) {
 		Serial.println(F("SIM is not registered"));
 		soft_restart();
 	}
+	
+	// Search for phonebook entry number
+	
 }
 
 void GeneratePassword(char* imei) {
@@ -208,7 +221,9 @@ void SMSServiceSetup(void) {
 	// Send AT+CSCS="GSM"
 	
 	// Set SMS mode
-	// Send AT+CNMI	
+	// Send AT+CNMI=2,2,0,0,0
+	// Save the settings for SMS
+	// Send AT+CSAS=0
 	
 	Serial.println(F("SMS Service Ready"));
 }
@@ -220,7 +235,7 @@ void calculateRings(void) {
 	sim900_clean_buffer(gprsBuffer,32);
 	sim900_read_buffer(gprsBuffer,32,DEFAULT_TIMEOUT);
 	// count the number of rings till you get RELEASE
-	while(strstr(gprsBuffer,"RELEASE")) == NULL) {
+	while(strstr(gprsBuffer,"NO CARRIER")) == NULL) {
 		sim900_clean_buffer(gprsBuffer,32);
 		sim900_read_buffer(gprsBuffer,32,DEFAULT_TIMEOUT);
 		if(NULL != strstr(gprsBuffer,"RING")) {
@@ -259,7 +274,7 @@ void calculateRings(void) {
 void UpdateResource(int state) {
 	if(state >= 0) {
 		digitalWrite(PUMP, state);
-		if(sms_reply_flag) {
+		if(smsReplyFlag) {
 			// send SMS
 			String reply = "TURNED ";
 			reply += (state > 0) ? "ON" : "OFF";
@@ -269,7 +284,7 @@ void UpdateResource(int state) {
 	}
 	
 	else if(state == -2) {
-		if(sms_reply_flag) {
+		if(smsReplyFlag) {
 			String reply = "STATUS";
 			reply += (digitalRead(PUMP) > 0) ? "ON" : "OFF";
 			// Send SMS
@@ -279,7 +294,7 @@ void UpdateResource(int state) {
 	}	
 }
 
-void checkSMSContent() {
+void checkSMSContent(void) {
 	// Get the SMS content
 	int state = -1;
 	char position = gsm.IsSMSPresent(SMS_UNREAD);			
@@ -298,7 +313,7 @@ void checkSMSContent() {
 				// check the password
 				// AUTH 1234567890
 				Serial.print(F("Mobile Number "));
-				Serial.print(mobile_number);
+				Serial.print(mobileNumber);
 				Serial.println(F(" Authorised"));
 				// make a phonebook entry
 			}
@@ -306,31 +321,31 @@ void checkSMSContent() {
 				// check for password
 				// UNAUTH 1234567890
 				Serial.print(F("Mobile Number "));
-				Serial.print(mobile_number);
+				Serial.print(mobileNumber);
 				Serial.println(F(" Unauthorised"));
 				// delete a phonebook entry
 			}
 			else if(SMSContent.indexOf("SMS ENABLE") != -1) {
-				sms_reply_flag = true;
+				smsReplyFlag = true;
 				// send SMS
 				String s = "SMS ENABLED";
 				Serial.println(s);
 				// gsm.sendSMS(1, s);
 			}
 			else if(SMSContent.indexOf("SMS DISABLE") != -1) {
-				sms_reply_flag = false;
+				smsReplyFlag = false;
 				// send SMS
 				String s = "SMS DISABLED";
 				// gsm.sendSMS(1, s);
 			}
 			else if(SMSContent.indexOf("DATA ENABLE") != -1) {
-				data_flag = true;
+				dataFlag = true;
 				// send SMS]
 				String s = "DATA ENABLED";
 				// gsm.sendSMS(1, s);
 			}
 			else if(SMSContent.indexOf("DATA DISABLE") != -1) {
-				data_flag = false;
+				dataFlag = false;
 				// send SMS
 				String s = "SMS DISABLED";
 				// gsm.sendSMS(1, "DATA DISABLED");
@@ -357,6 +372,8 @@ void checkSMSContent() {
 				// AUTH 1234567890 abcdef
 				if(SMSContent.substring(16,22) == "abcdef") {
 					// make phonebook entry
+					String mobileNumber = SMSContent.substring(9,22);
+					//AT+CPBW=PBEntryIndex,mobileNumber,129,"TT+mobileNumber"
 				}
 			}
 			else if(SMSContent.indexOf("UNAUTH") != -1) {
@@ -364,6 +381,12 @@ void checkSMSContent() {
 				// UNAUTH 1234567890 abcdef
 				if(SMSContent.substring(16,22) == "abcdef") {
 					//delete a phonebook entry
+					String mobileNumber = SMSContent.substring(74,84);
+					String inBuffer;
+					// inBuffer = AT+CPBF="mobileNumber"
+					// get phonebook entry index number
+					inBuffer = inBuffer.substring(9,inBuffer.indexOf(','));
+					// AT+CPBW=inBuffer.toInt();			
 				}
 			}
 		}
@@ -371,11 +394,11 @@ void checkSMSContent() {
 }
 
 bool checkIfNumberAuthorized(String inComingString) {
-	String mobile_number;
+	String mobileNumber;
 	
 	// check if string is call string or sms string
 	// Extract mobile number from the string
-	mobile_number = inComingString.substring(21,34);
+	mobileNumber = inComingString.substring(21,34);
 	
 	// check this mobile number with the saved numbers
 	if(number is matched) {
