@@ -33,6 +33,8 @@ version 0.1
 #include "SoftReset.h"
 // Add SIM900 library here
 
+
+
 /*
 // SIM900 GSM module PIN and BAUD RATE settings
 #define PIN_TX		3
@@ -53,16 +55,26 @@ version 0.1
 
 // Global Varables
 bool reboot_flag = false;
-// bool auth_flag = false; // not required
+//bool auth_flag = false;
 bool sms_reply_flag = false;
 bool data_flag = false;
-bool pump_status_flag = false;
+//bool pump_status_flag = false;
 bool inComing = false;
 String password = "abcdef";  // Default password
 
 // Create an instance of SMS and call
-SMSGSM sms;
-CallGSM call;
+//SMSGSM sms;
+//CallGSM call;
+
+// Function Declaration
+void InitHardware(void);
+void SIMCardSetup(void);
+void SMSServiceSetup(void);
+void calculateRings(void);
+void checkSMSContent(void);
+void checkAuthentication(void);
+
+// Main function starts here
 
 void setup() {
 	// Initialize the hardware
@@ -92,17 +104,14 @@ void loop() {
 		// +CCWA: "1234657890",129,1
 		if(NULL != strstr(gprsBuffer,"RING")) {
 			// Put the ring handling code here
-			calculateRings();
+			if(checkIfNumberAuthorized(gprsBuffers) {
+				calculateRings();
+			}
 		}
 		// +CMTI: "SM", 2
 		else if(NULL != (s = strstr(gprsBuffer,"+CMTI: \"SM\""))) { 
 			// Put the SMS handling code here
-			char message[MESSAGE_LENGTH];
-			int messageIndex = atoi(s + 12);
-			gprs.readSMS(messageIndex, message, MESSAGE_LENGTH);
-			Serial.println("Recv Message: ");
-			Serial.println(message);
-			checkSMSContent(message);		
+			checkSMSContent();
 		}
 		sim900_clean_buffer(gprsBuffer,32);
 		inComing = false;
@@ -120,7 +129,8 @@ void InitHardware(void) {
 	Serial.begin(9600);
 	
 	// Specify EEPROM Block
-	// Find a better saving mechanism than EEPROM
+	EEPROM.begin(512);
+	delay(10);
 	
 	Serial.println(F("Setting up the hardware"));
 	
@@ -135,6 +145,7 @@ void InitHardware(void) {
 		soft_restart();
 	}
 	
+	// Set the communication settings for SIM900
 	// Sent ATE0
 	// Send AT+CLIP=1
 	
@@ -142,14 +153,19 @@ void InitHardware(void) {
 
 void SIMCardSetup(void) {
 	// check SIM status
+	Serial.println(F("Checking for SIM status"));
 	gsm.checkSIMStatus();
 	
 	// check IMEI of device
 	char imei;
 	imei = getIMEI();
+	Serial.print(F("Received IMEI"));
+	Serial.println(imei);
 	
 	// Generate Secret PASSWORD from IMEI
+	Serial.println(F("Generating password"));
 	GeneratePassword(imei);
+	Serial.println(password);
 	
 	// Check for signal strength
 	int rssi, ber
@@ -161,8 +177,14 @@ void SIMCardSetup(void) {
 	// Check for SIM registration
 	int registered, networkType;
 	// Send AT+CREG
-	//registered = atoi(x);
-	//networkType = atoi(x);
+	//registered = atoi(x); // will return 0 or 5 if registered
+	if(registered == 0 || registered == 5) {
+		Serial.println(F("SIM is registered"));
+	}
+	else {
+		Serial.println(F("SIM is not registered"));
+		soft_restart();
+	}
 }
 
 void GeneratePassword(char* imei) {
@@ -173,6 +195,9 @@ void GeneratePassword(char* imei) {
 	//password[4] = imei[12];
 	//password[5] = imei[13];
 	//password[6] = imei[14];
+	
+	Serial.println(F("PASSWORD generated"));
+	Serial.println(password);
 }
 
 void SMSServiceSetup(void) {
@@ -184,6 +209,8 @@ void SMSServiceSetup(void) {
 	
 	// Set SMS mode
 	// Send AT+CNMI	
+	
+	Serial.println(F("SMS Service Ready"));
 }
 
 void calculateRings(void) {
@@ -201,20 +228,25 @@ void calculateRings(void) {
 		}
 	}
 	
+	Serial.println(counter);
+	Serial.println(F(" RINGS"));
 	// Check the number of rings
 	switch (counter){
 		case RINGS_TURN_ON:
 			state = 1;
+			Serial.println(F("PUMP turned ON"));
 			UpdateResource(state);
 			break;
 			
 		case RINGS_TURN_OFF:
 			state = 0;
+			Serial.println(F("PUMP turned OFF"));
 			UpdateResource(state);
 			break;
 			
 		case RINGS_STATUS:
 			state = -2;
+			Serial.println(F("PUMP status check"));
 			UpdateResource(state);
 			break;
 			
@@ -222,7 +254,6 @@ void calculateRings(void) {
 			Serial.println(F("invalid RINGS"));
 			break;
 	}
-	
 }
 
 void UpdateResource(int state) {
@@ -248,67 +279,108 @@ void UpdateResource(int state) {
 	}	
 }
 
-void checkSMSContent(char* message) {
+void checkSMSContent() {
+	// Get the SMS content
 	int state = -1;
-	// if string contains AUTH then add the mobile number to authenticated
-	// get SMS if sent from authorized number
-	char position = gsm.IsSMSPresent(SMS_UNREAD);
-	
+	char position = gsm.IsSMSPresent(SMS_UNREAD);			
+
 	if(position) {
 		// read SMS content
 		gsm.GetSMS(position, phone_num, sms_text, 100);
 		String SMSContent = String(sms_text);
 		SMSContent.toUpperCase();
+		Serial.println(F("Printing SMS content"));
+		Serial.println(SMSContent);
 		
-		if(SMSContent.indexOf("AUTH") != -1) {			
-			// check the password
-			// AUTH 1234567890 abcdef
-			if(SMSContent.substring(16,22) == "abcdef") {
-				// save the mobile number as authorized number
-				
+		if(checkIfNumberAuthorized(SMSContent)) {
+			// check the content of the message
+			if(SMSContent.indexOf("AUTH") != -1) {			
+				// check the password
+				// AUTH 1234567890
+				Serial.print(F("Mobile Number "));
+				Serial.print(mobile_number);
+				Serial.println(F(" Authorised"));
+				// make a phonebook entry
+			}
+			else if(SMSContent.indexOf("UNAUTH") != -1) {
+				// check for password
+				// UNAUTH 1234567890
+				Serial.print(F("Mobile Number "));
+				Serial.print(mobile_number);
+				Serial.println(F(" Unauthorised"));
+				// delete a phonebook entry
+			}
+			else if(SMSContent.indexOf("SMS ENABLE") != -1) {
+				sms_reply_flag = true;
+				// send SMS
+				String s = "SMS ENABLED";
+				Serial.println(s);
+				// gsm.sendSMS(1, s);
+			}
+			else if(SMSContent.indexOf("SMS DISABLE") != -1) {
+				sms_reply_flag = false;
+				// send SMS
+				String s = "SMS DISABLED";
+				// gsm.sendSMS(1, s);
+			}
+			else if(SMSContent.indexOf("DATA ENABLE") != -1) {
+				data_flag = true;
+				// send SMS]
+				String s = "DATA ENABLED";
+				// gsm.sendSMS(1, s);
+			}
+			else if(SMSContent.indexOf("DATA DISABLE") != -1) {
+				data_flag = false;
+				// send SMS
+				String s = "SMS DISABLED";
+				// gsm.sendSMS(1, "DATA DISABLED");
+			}
+			else if(SMSContent.indexOf("TURN ON") != -1) {
+				state = 1;
+				UpdateResource(state);
+				Serial.println(F("PUMP turned ON"));
+			}
+			else if(SMSContent.indexOf("TURN OFF") != -1) {
+				state = 0;
+				UpdateResource(state);
+				Serial.println(F("PUMP turned OFF"));
+			}
+			else if(SMSContent.indexOf("STATUS") != -1) {
+				state = -2;
+				UpdateResource(state);
+				Serial.println(F("PUMP status check"));
 			}
 		}
-		else if(SMSContent.indexOf("UNAUTH") != -1) {
-			// check for password
-			// UNAUTH 1234567890 abcdef
-			if(SMSContent.substring(16,22) == "abcdef") {
-				// delete the mobile number from memory
+		else {
+			if(SMSContent.indexOf("AUTH") != -1) {			
+				// check the password
+				// AUTH 1234567890 abcdef
+				if(SMSContent.substring(16,22) == "abcdef") {
+					// make phonebook entry
+				}
 			}
-			/*else if(check for SMS sending number) {
-				if the number is authorized then delete the specified mobile number
-			} */
-		}
-		else if(SMSContent.indexOf("SMS ENABLE") != -1) {
-			sms_reply_flag = true;
-			// send SMS
-			// gsm.sendSMS(1, "SMS ENABLED");
-		}
-		else if(SMSContent.indexOf("SMS DISABLE") != -1) {
-			sms_reply_flag = false;
-			// send SMS
-			// gsm.sendSMS(1, "SMS DISABLED");
-		}
-		else if(SMSContent.indexOf("DATA ENABLE") != -1) {
-			data_flag = true;
-			// send SMS
-			// gsm.sendSMS(1, "DATA ENABLED");
-		}
-		else if(SMSContent.indexOf("DATA DISABLE") != -1) {
-			data_flag = false;
-			// send SMS
-			// gsm.sendSMS(1, "DATA DISABLED");
-		}
-		else if(SMSContent.indexOf("TURN ON") != -1) {
-			state = 1;
-			UpdateResource(state);
-		}
-		else if(SMSContent.indexOf("TURN OFF") != -1) {
-			state = 0;
-			UpdateResource(state);
-		}
-		else if(SMSContent.indexOf("STATUS") != -1) {
-			state = -2;
-			UpdateResource(state);
+			else if(SMSContent.indexOf("UNAUTH") != -1) {
+				// check for password
+				// UNAUTH 1234567890 abcdef
+				if(SMSContent.substring(16,22) == "abcdef") {
+					//delete a phonebook entry
+				}
+			}
 		}
 	}
+}
+
+bool checkIfNumberAuthorized(String inComingString) {
+	String mobile_number;
+	
+	// check if string is call string or sms string
+	// Extract mobile number from the string
+	mobile_number = inComingString.substring(21,34);
+	
+	// check this mobile number with the saved numbers
+	if(number is matched) {
+		return(true);
+	}
+	else 
+		return(false);
 }
