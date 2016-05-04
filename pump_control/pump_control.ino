@@ -136,6 +136,8 @@ void InitHardware(void) {
 		//if not load default config files to EEPROM
 		writeInitalConfig();
 	}
+	// Read the config settings from EEPROM
+	readConfig();
 	Serial.println(F("Setting up the hardware"));
 	
 	// prepare the PUMP control GPIO
@@ -159,6 +161,14 @@ void writeInitalConfig(void) {
 	EEPROM.write(500, 786);
 	EEPROM.write(1, 1); // Set default PBEntryIndex = 10
 	EEPROM.write(2, 0); // SMS Reply disabled
+	EEPROM.write(3, 0); // DATA disabled
+	EEPROM.commit();
+}
+
+void readConfig(void) {
+	PBEntryIndex = EERPOM.read(1);
+	smsReplyFlag = (EEPROM.read(2) != 0) true : false;
+	dataFlag = (EEPROM.read(3) != 0) true : false;
 }
 
 void SIMCardSetup(void) {
@@ -195,9 +205,6 @@ void SIMCardSetup(void) {
 		Serial.println(F("SIM is not registered"));
 		soft_restart();
 	}
-	
-	// Search for phonebook entry number
-	
 }
 
 void GeneratePassword(char* imei) {
@@ -234,6 +241,7 @@ void calculateRings(void) {
 	
 	sim900_clean_buffer(gprsBuffer,32);
 	sim900_read_buffer(gprsBuffer,32,DEFAULT_TIMEOUT);
+	String checkAuthentication = String(gprsBuffer);
 	// count the number of rings till you get RELEASE
 	while(strstr(gprsBuffer,"NO CARRIER")) == NULL) {
 		sim900_clean_buffer(gprsBuffer,32);
@@ -245,29 +253,32 @@ void calculateRings(void) {
 	
 	Serial.println(counter);
 	Serial.println(F(" RINGS"));
-	// Check the number of rings
-	switch (counter){
-		case RINGS_TURN_ON:
-			state = 1;
-			Serial.println(F("PUMP turned ON"));
-			UpdateResource(state);
-			break;
-			
-		case RINGS_TURN_OFF:
-			state = 0;
-			Serial.println(F("PUMP turned OFF"));
-			UpdateResource(state);
-			break;
-			
-		case RINGS_STATUS:
-			state = -2;
-			Serial.println(F("PUMP status check"));
-			UpdateResource(state);
-			break;
-			
-		default:
-			Serial.println(F("invalid RINGS"));
-			break;
+	
+	if(checkIfNumberAuthorized(checkAuthentication)) {
+		// Check the number of rings
+		switch (counter){
+			case RINGS_TURN_ON:
+				state = 1;
+				Serial.println(F("PUMP turned ON"));
+				UpdateResource(state);
+				break;
+				
+			case RINGS_TURN_OFF:
+				state = 0;
+				Serial.println(F("PUMP turned OFF"));
+				UpdateResource(state);
+				break;
+				
+			case RINGS_STATUS:
+				state = -2;
+				Serial.println(F("PUMP status check"));
+				UpdateResource(state);
+				break;
+				
+			default:
+				Serial.println(F("invalid RINGS"));
+				break;
+		}
 	}
 }
 
@@ -286,7 +297,7 @@ void UpdateResource(int state) {
 	else if(state == -2) {
 		if(smsReplyFlag) {
 			String reply = "STATUS";
-			reply += (digitalRead(PUMP) > 0) ? "ON" : "OFF";
+			reply += (digitalRead(PUMP) != 0) ? "ON" : "OFF";
 			// Send SMS
 			Serial.println(reply);
 			sim900.sendSMS(number, response.c_str());
@@ -309,21 +320,29 @@ void checkSMSContent(void) {
 		
 		if(checkIfNumberAuthorized(SMSContent)) {
 			// check the content of the message
-			if(SMSContent.indexOf("AUTH") != -1) {			
-				// check the password
+			if(SMSContent.indexOf("AUTH") != -1) {
 				// AUTH 1234567890
+				// make a phonebook entry
+				String mobileNumber = SMSContent.substring(74,84);
+				//AT+CPBW=PBEntryIndex,mobileNumber,129,"TTmobileNumber"
+				PBEntryIndex++;
 				Serial.print(F("Mobile Number "));
 				Serial.print(mobileNumber);
 				Serial.println(F(" Authorised"));
-				// make a phonebook entry
 			}
 			else if(SMSContent.indexOf("UNAUTH") != -1) {
-				// check for password
 				// UNAUTH 1234567890
+				// delete a phonebook entry
+				String mobileNumber = SMSContent.substring(74,84);
+				String inBuffer;
+				// inBuffer = AT+CPBF="mobileNumber"
+				// get phonebook entry index number
+				inBuffer = inBuffer.substring(9,inBuffer.indexOf(','));
+				// AT+CPBW=inBuffer.toInt();
+				PBEntryIndex--;
 				Serial.print(F("Mobile Number "));
 				Serial.print(mobileNumber);
 				Serial.println(F(" Unauthorised"));
-				// delete a phonebook entry
 			}
 			else if(SMSContent.indexOf("SMS ENABLE") != -1) {
 				smsReplyFlag = true;
@@ -365,29 +384,37 @@ void checkSMSContent(void) {
 				UpdateResource(state);
 				Serial.println(F("PUMP status check"));
 			}
+			else {
+				Serial.println(F("Invalid Command"));
+			}
 		}
 		else {
 			if(SMSContent.indexOf("AUTH") != -1) {			
 				// check the password
 				// AUTH 1234567890 abcdef
 				if(SMSContent.substring(16,22) == "abcdef") {
-					// make phonebook entry
-					String mobileNumber = SMSContent.substring(9,22);
-					//AT+CPBW=PBEntryIndex,mobileNumber,129,"TT+mobileNumber"
+					String mobileNumber = SMSContent.substring(74,84);
+					// make phonebook entry					//AT+CPBW=PBEntryIndex,mobileNumber,129,"TT+mobileNumber"
+					PBEntryIndex++;
 				}
 			}
 			else if(SMSContent.indexOf("UNAUTH") != -1) {
 				// check for password
 				// UNAUTH 1234567890 abcdef
 				if(SMSContent.substring(16,22) == "abcdef") {
-					//delete a phonebook entry
 					String mobileNumber = SMSContent.substring(74,84);
 					String inBuffer;
+					// Seraching for the mobile number
 					// inBuffer = AT+CPBF="mobileNumber"
 					// get phonebook entry index number
 					inBuffer = inBuffer.substring(9,inBuffer.indexOf(','));
-					// AT+CPBW=inBuffer.toInt();			
+					//delete a phonebook entry
+					// AT+CPBW=inBuffer.toInt();
+					PBEntryIndex--;
 				}
+			}
+			else {
+				Serial.println(F("invalid authorization command"));
 			}
 		}
 	}
@@ -397,11 +424,27 @@ bool checkIfNumberAuthorized(String inComingString) {
 	String mobileNumber;
 	
 	// check if string is call string or sms string
-	// Extract mobile number from the string
-	mobileNumber = inComingString.substring(21,34);
-	
+	if(inComingString.indexOf("+CCWA") != -1) {
+		// inComingString is a call
+		// Extract mobile number from the string
+		mobileNumber = inComingString.substring(10,23);
+		Serial.print(F("Mobile number obtained "));
+		Serial.println(mobileNumber);
+	}
+	else if(inComingString.indexOf("+CMT") != -1) {
+		// inComingString is an SMS
+		// Extract mobile number from the string
+		mobileNumber = inComingString.substring(21,34);
+		Serial.print(F("Mobile number obtained "));
+		Serial.println(mobileNumber);
+	}
+		
 	// check this mobile number with the saved numbers
-	if(number is matched) {
+	String inBuffer;
+	// Seraching for the mobile number
+	// inBuffer = AT+CPBF="mobileNumber"
+	// If number is present
+	if(inBuffer.indexOf("OK") != -1) {
 		return(true);
 	}
 	else 
