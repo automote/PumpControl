@@ -32,16 +32,16 @@ version 0.1
 #include <EEPROM.h>
 #include "SoftReset.h"
 // Add SIM900 library here
+#include "GPRS_Shield_Arduino.h"
 
 
-
-/*
-// SIM900 GSM module PIN and BAUD RATE settings
-#define PIN_TX		3
-#define PIN_RX	    2
-#define PIN_PWR		9
+// SIM900 GSM module settings
+#define PIN_TX		7
+#define PIN_RX	    8
+#define PIN_POWER   9
 #define BAUDRATE	9600
-*/
+#define MESSAGE_LENGTH 20
+
 // Pump actuation pin
 #define PUMP	6
 
@@ -62,10 +62,15 @@ bool dataFlag = false;
 bool inComing = false;
 String password = "abcdef";  // Default password
 unsigned int PBEntryIndex;
+char gsmBuffer[64];
+char *s = NULL;
 
 // Create an instance of SMS and call
-//SMSGSM sms;
-//CallGSM call;
+SMSGSM sms;
+CallGSM call;
+
+// Create an instance of SoftwareSerial
+SoftwareSerial gsm(PIN_RX, PIN_TX, BAUDRATE);
 
 // Function Declaration
 void InitHardware(void);
@@ -90,33 +95,31 @@ void setup() {
 
 void loop() {
 	// Wait for SMS or call
-	if({SMS or call available}) {
-		inComing = true;
-	}
-	else
-		delay(100);
-		
-	// if SMS or call arrives
-	if(inComing) {	
-		sim900_read_buffer(gprsBuffer,32,DEFAULT_TIMEOUT);
-		Serial.print(gprsBuffer);
-		
+	if(gsm.readable()) {
+		// Print the buffer
+		sim_read_buffer(gsmBuffer,32,DEFAULT_TIMEOUT);
+		Serial.println(gsmBuffer);
+		// If incoming is call		
 		// RING
 		// +CCWA: "1234657890",129,1
 		if(NULL != strstr(gprsBuffer,"RING")) {
-			// Put the ring handling code here
+			calculateRings();
+			/*
+			// check for authorization
 			if(checkIfNumberAuthorized(gprsBuffers) {
-				calculateRings();
+				
 			}
+			*/
 		}
+		// If incoming is SMS
 		// +CMTI: "SM", 2
-		else if(NULL != (s = strstr(gprsBuffer,"+CMTI: \"SM\""))) { 
-			// Put the SMS handling code here
+		else if(NULL != (s = strstr(gprsBuffer,"+CMT: \"SM\""))) { 
 			checkSMSContent();
 		}
 		sim900_clean_buffer(gprsBuffer,32);
-		inComing = false;
 	}
+	else
+		delay(100);
 	
 	if (rebootFlag) {
 		Serial.println(F("Rebooting device"));
@@ -153,7 +156,11 @@ void InitHardware(void) {
 	
 	// Set the communication settings for SIM900
 	// Sent ATE0
+	sim900_check_with_cmd("ATE0\r\n","OK\r\n",CMD);
+	delay(1000);
 	// Send AT+CLIP=1
+	sim900_check_with_cmd("AT+CLIP=1\r\n","OK\r\n",CMD);
+	delay(1000);
 	
 }
 
