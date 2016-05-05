@@ -184,8 +184,9 @@ void SIMCardSetup(void) {
 	gsm.checkSIMStatus();
 	
 	// check IMEI of device
-	char imei;
-	imei = getIMEI();
+	char imei[16];
+	// Send AT+GSN
+	gsm.getIMEI(imei);
 	Serial.print(F("Received IMEI"));
 	Serial.println(imei);
 	
@@ -195,16 +196,18 @@ void SIMCardSetup(void) {
 	Serial.println(password);
 	
 	// Check for signal strength
-	int rssi, ber
+	int rssi, ber;
 	// sent AT+CSQ
-	//rssi = atoi(x);
-	// ber = atoi(x);
-	
-	
+	gsm.getSignalStrength(rssi);
+		
 	// Check for SIM registration
-	int registered, networkType;
 	// Send AT+CREG?
-	//registered = atoi(x); // will return 1 or 5 if registered
+	int registered, networkType;
+	gsm.getSIMRegistration(registered,networkType);
+	Serial.print(F("registered is ");
+	Serial.println(registered);
+	Serial.print(F("network type is ");
+	Serial.println(networkType);
 	if(registered == 0 || registered == 5) {
 		Serial.println(F("SIM is registered"));
 	}
@@ -230,14 +233,22 @@ void GeneratePassword(char* imei) {
 void SMSServiceSetup(void) {
 	// Set SMS input mode
 	// send AT+CMGF=1
+	sim900_check_with_cmd("AT+CMGF=1\r\n","OK\r\n",CMD);
+	delay(1000);
 	
 	// Set the input character set
 	// Send AT+CSCS="GSM"
+	sim900_check_with_cmd("AT+CSCS=\"GSM\"\r\n","OK\r\n",CMD);
+	delay(1000);
 	
 	// Set SMS mode
-	// Send AT+CNMI=2,2,0,0,0
+	// Send AT+CNMI=2,1,0,0,0
+	sim900_check_with_cmd("AT+CNMI=2,1,0,0\r\n","OK\r\n",CMD);
+	delay(1000);
 	// Save the settings for SMS
 	// Send AT+CSAS=0
+	sim900_check_with_cmd("AT+CSAS=0\r\n","OK\r\n",CMD);
+	delay(1000);
 	
 	Serial.println(F("SMS Service Ready"));
 }
@@ -245,15 +256,15 @@ void SMSServiceSetup(void) {
 void calculateRings(void) {
 	int counter = 1;
 	int state = -1;
-	
-	sim900_clean_buffer(gprsBuffer,32);
-	sim900_read_buffer(gprsBuffer,32,DEFAULT_TIMEOUT);
-	String checkAuthentication = String(gprsBuffer);
+	char authString[64];
+	sim900_clean_buffer(gsmBuffer,sizeof(gsmBuffer));
+	sim900_read_buffer(gsmBuffer,sizeof(gsmBuffer),DEFAULT_TIMEOUT);
+	strcpy(authString,gsmBuffer);
 	// count the number of rings till you get RELEASE
 	while(strstr(gprsBuffer,"NO CARRIER")) == NULL) {
-		sim900_clean_buffer(gprsBuffer,32);
-		sim900_read_buffer(gprsBuffer,32,DEFAULT_TIMEOUT);
-		if(NULL != strstr(gprsBuffer,"RING")) {
+		sim900_clean_buffer(gsmBuffer,sizeof(gsmBuffer));
+		sim900_read_buffer(gsmBuffer,sizeof(gsmBuffer),DEFAULT_TIMEOUT);
+		if(NULL != strstr(gsmBuffer,"RING")) {
 			counter++;
 		}
 	}
@@ -261,7 +272,7 @@ void calculateRings(void) {
 	Serial.println(counter);
 	Serial.println(F(" RINGS"));
 	
-	if(checkIfNumberAuthorized(checkAuthentication)) {
+	if(checkIfNumberAuthorized(authString)) {
 		// Check the number of rings
 		switch (counter){
 			case RINGS_TURN_ON:
@@ -297,6 +308,7 @@ void UpdateResource(int state) {
 			String reply = "TURNED ";
 			reply += (state > 0) ? "ON" : "OFF";
 			Serial.println(F(reply));
+			// which number to send
 			gsm.sendSMS(1, reply);
 		}
 	}
@@ -307,7 +319,8 @@ void UpdateResource(int state) {
 			reply += (digitalRead(PUMP) != 0) ? "ON" : "OFF";
 			// Send SMS
 			Serial.println(reply);
-			sim900.sendSMS(number, response.c_str());
+			// which number to send
+			gsm.sendSMS(, reply.c_str());
 		}
 	}	
 }
@@ -427,33 +440,64 @@ void checkSMSContent(void) {
 	}
 }
 
-bool checkIfNumberAuthorized(String inComingString) {
-	String mobileNumber;
+bool checkIfNumberAuthorized(char *inComingString) {
+	byte i = 0;
+	char mobileNumber[16];
+	char *p,*p2,*s;
+	byte messageIndex = 0;
+	char message[MESSAGE_LENGTH];
+	char dateTime[24];
 	
 	// check if string is call string or sms string
-	if(inComingString.indexOf("+CCWA") != -1) {
+	if(NULL != ( s = strstr(inComingString,"+CLIP:"))) {
 		// inComingString is a call
+		// Response is like:
+		// RING
+		// +CLIP: "+91XXXXXXXXXX",145,"",,"TT+91XXXXXXXXXX",0
+		
 		// Extract mobile number from the string
-		mobileNumber = inComingString.substring(10,23);
+		p = strstr(s,"\"");
+		p++; // we are on first character of phone number
+		p2 = strstr(p,"\"");
+		if (NULL != p) {
+			i = 0;
+			while(p < p2) {
+				mobileNumber[i++] = *(p++);
+			}
+			mobileNumber[i] = '\0';
+		}
+		
 		Serial.print(F("Mobile number obtained "));
 		Serial.println(mobileNumber);
 	}
-	else if(inComingString.indexOf("+CMT") != -1) {
+	else if(inComingString.indexOf("+CMTI":) != -1) {
 		// inComingString is an SMS
+		// Response is like:
+		// +CMTI: "SM",<index>
 		// Extract mobile number from the string
-		mobileNumber = inComingString.substring(21,34);
+		messageIndex = gsm.isSMSunread();
+		if (messageIndex > 0) {
+			// there is atleast one unread SMS
+			gsm.readSMS(messageIndex, message, MESSAGE_LENGTH, mobileNumber, dateTime);
+			//gsm.deleteSMS(messageIndex);
+		}
 		Serial.print(F("Mobile number obtained "));
 		Serial.println(mobileNumber);
 	}
 		
 	// check this mobile number with the saved numbers
-	String inBuffer;
 	// Seraching for the mobile number
-	// inBuffer = AT+CPBF="mobileNumber"
+	// AT+CPBF="mobileNumber"
+	sim900_send_cmd("AT+CPBF=\"");
+	sim900_send_cmd(mobileNumber);
+	sim900_send_cmd("\"\r\n");
+	sim900_clean_buffer(gsmBuffer, sizeof(gsmBuffer));
+	sim900_read_buffer(gsmBuffer, sizeof(gsmBuffer));
+	
 	// If number is present
-	if(inBuffer.indexOf("OK") != -1) {
-		return(true);
+	if(NULL != ( s = strstr(gsmBuffer, "+CPBF:")
+		return true;
 	}
 	else 
-		return(false);
+		return false;
 }
