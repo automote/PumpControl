@@ -30,6 +30,7 @@ version 0.1
 #include <SoftwareSerial.h>
 #include <Wire.h>
 #include <EEPROM.h>
+#include <string.h>
 #include "SoftReset.h"
 // Add SIM900 library here
 #include "GPRS_Shield_Arduino.h"
@@ -38,7 +39,7 @@ version 0.1
 // SIM900 GSM module settings
 #define PIN_TX		7
 #define PIN_RX	    8
-#define PIN_POWER   9
+//#define PIN_POWER   9
 #define BAUDRATE	9600
 #define MESSAGE_LENGTH 20
 
@@ -56,16 +57,18 @@ version 0.1
 #define PB_ENTRY_INDEX_LOCATION 1
 #define SMS_REPLY_LOCATION 2
 #define DATA_REPLY_LOCATION 3
-
+#define MISSEDCALL_LOCATION 4
 
 // Global Varables
 bool rebootFlag = false;
 bool smsReplyFlag = false;
+bool missedCallFlag = false;
 bool dataFlag = false;
 char *password = "abcdef";  // Default password
 unsigned int PBEntryIndex = 1;
 char gsmBuffer[64];
 char *s = NULL;
+bool pumpFlag = false;
 
 // Create an instance of GPRS library
 GPRS gsm(PIN_RX, PIN_TX, BAUDRATE);
@@ -102,7 +105,9 @@ void loop() {
 		// RING
 		// +CLIP: "+91XXXXXXXXXX",145,"",,"TT+91XXXXXXXXXX",0
 		if(NULL != strstr(gsmBuffer,"RING")) {
-			handleRings();	
+			if(missedCallFlag) {
+				handleRings();
+			}
 		}
 		// If incoming is SMS
 		// +CMTI: "SM", 2
@@ -149,10 +154,10 @@ void InitHardware(void) {
 	
 	// Set the communication settings for SIM900
 	// Sent ATE0
-	sim900_check_with_cmd("ATE0\r\n","OK\r\n",CMD);
+	sim900_check_with_cmd(F("ATE0\r\n"),"OK\r\n",CMD);
 	delay(1000);
 	// Send AT+CLIP=1
-	sim900_check_with_cmd("AT+CLIP=1\r\n","OK\r\n",CMD);
+	sim900_check_with_cmd(F("AT+CLIP=1\r\n"),"OK\r\n",CMD);
 	delay(1000);
 	
 }
@@ -162,12 +167,14 @@ void writeInitalConfig(void) {
 	EEPROM.write(PB_ENTRY_INDEX_LOCATION, 1); // Set default PBEntryIndex = 1
 	EEPROM.write(SMS_REPLY_LOCATION, 0); // SMS Reply disabled
 	EEPROM.write(DATA_REPLY_LOCATION, 0); // DATA disabled
+	EEPROM.write(MISSEDCALL_LOCATION, 0); // Missed call disabled
 }
 
 void readConfig(void) {
 	PBEntryIndex = EEPROM.read(1);
 	smsReplyFlag = (EEPROM.read(2) != 0)? true : false;
 	dataFlag = (EEPROM.read(3) != 0)? true : false;
+	missedCallFlag = (EEPROM.read(4) != 0)? true: false;
 }
 
 void SIMCardSetup(void) {
@@ -184,16 +191,16 @@ void SIMCardSetup(void) {
 	GeneratePassword(imei);
 	
 	// Check for signal strength
-	int *rssi, ber;
+	int rssi, ber;
 	// sent AT+CSQ
-	gsm.getSignalStrength(rssi);
-	Serial.print("Signal Strngth is ");
+	gsm.getSignalStrength(&rssi);
+	Serial.print(F("Signal Strngth is "));
 	Serial.println(rssi);
 		
 	// Check for SIM registration
 	// Send AT+CREG?
 	int registered, networkType;
-	gsm.getSIMRegistration(registered,networkType);
+	gsm.getSIMRegistration(&registered,&networkType);
 	Serial.print(F("registered is "));
 	Serial.println(registered);
 	Serial.print(F("network type is "));
@@ -218,21 +225,21 @@ void GeneratePassword(char* imei) {
 void SMSServiceSetup(void) {
 	// Set SMS input mode
 	// send AT+CMGF=1
-	sim900_check_with_cmd("AT+CMGF=1\r\n","OK\r\n",CMD);
+	sim900_check_with_cmd(F("AT+CMGF=1\r\n"),"OK\r\n",CMD);
 	delay(1000);
 	
 	// Set the input character set
 	// Send AT+CSCS="GSM"
-	sim900_check_with_cmd("AT+CSCS=\"GSM\"\r\n","OK\r\n",CMD);
+	sim900_check_with_cmd(F("AT+CSCS=\"GSM\"\r\n"),"OK\r\n",CMD);
 	delay(1000);
 	
 	// Set SMS mode
 	// Send AT+CNMI=2,1,0,0,0
-	sim900_check_with_cmd("AT+CNMI=2,1,0,0\r\n","OK\r\n",CMD);
+	sim900_check_with_cmd(F("AT+CNMI=2,1,0,0\r\n"),"OK\r\n",CMD);
 	delay(1000);
 	// Save the settings for SMS
 	// Send AT+CSAS=0
-	sim900_check_with_cmd("AT+CSAS=0\r\n","OK\r\n",CMD);
+	sim900_check_with_cmd(F("AT+CSAS=0\r\n"),"OK\r\n",CMD);
 	delay(1000);
 	
 	Serial.println(F("SMS Service Ready"));
@@ -263,7 +270,7 @@ void handleRings(void) {
 		switch (counter){
 			case RINGS_TURN_ON:
 				state = 1;
-				if(UpdateResource(state) == -1) {
+				if(UpdateResource(state)) {
 					if(smsReplyFlag) {
 						// send SMS
 						gsm.sendSMS(mobileNumber,"TURNED ON");
@@ -274,7 +281,7 @@ void handleRings(void) {
 				
 			case RINGS_TURN_OFF:
 				state = 0;
-				if(UpdateResource(state) == -1) {
+				if(UpdateResource(state)) {
 					if(smsReplyFlag) {
 						// send SMS
 						gsm.sendSMS(mobileNumber,"TURNED OFF");
@@ -285,7 +292,9 @@ void handleRings(void) {
 				
 			case RINGS_STATUS:
 				state = -2;
-				char s = "STATUS ";
+				char *s;
+				s = (char *)malloc(11);
+				strcpy(s,"STATUS ");
 				if(UpdateResource(state)) {
 					strcat(s, "ON");					
 				}
@@ -310,23 +319,22 @@ int UpdateResource(int state) {
 	switch (state) {
 		case 0:
 			digitalWrite(PUMP_OFF, LOW);
-			digitalWrite(PUMP_ON, HIGH);
-			return -1;
+			delay(1000);
+			digitalWrite(PUMP_OFF, HIGH);
+			pumpFlag = false;
+			return pumpFlag;
 			break;
 			
 		case 1:
 			digitalWrite(PUMP_ON, LOW);
-			digitalWrite(PUMP_OFF, HIGH);
-			return -1;
+			delay(1000);
+			digitalWrite(PUMP_ON, HIGH);
+			pumpFlag = true;
+			return pumpFlag;
 			break;
 			
 		case -2:
-			if(!digitalRead(PUMP_ON)) {
-				return 1;
-			}
-			else if(!digitalRead(PUMP_OFF)) {
-				return 0;
-			}
+			return pumpFlag;
 			break;
 			
 		default:
@@ -440,34 +448,58 @@ void handleSMS(void) {
 			else if(NULL != strstr(message,"SMS ENABLE")) {
 				smsReplyFlag = true;
 				// send SMS
-				gsm.sendSMS(mobileNumber,"SMS ENABLED");
+				if(smsReplyFlag) {
+					gsm.sendSMS(mobileNumber,"SMS ENABLED");
+				}
 				// Save settings to EEPROM
 				EEPROM.update(SMS_REPLY_LOCATION,1);
 			}
 			else if(NULL != strstr(message,"SMS DISABLE")) {
 				smsReplyFlag = false;
-				// send SMS
-				gsm.sendSMS(mobileNumber,"SMS DISABLED");
 				// Save setting to EEPROM
 				EEPROM.update(SMS_REPLY_LOCATION,0);
 			}
+			/*
 			else if(NULL != strstr(message,"DATA ENABLE")) {
 				dataFlag = true;
 				// send SMS
-				gsm.sendSMS(mobileNumber, "DATA ENABLED");
+				if(smsReplyFlag){
+					gsm.sendSMS(mobileNumber, "DATA ENABLED");
+				}
 				// Save setting to EEPROM
 				EEPROM.update(DATA_REPLY_LOCATION,1);
 			}
 			else if(NULL != strstr(message,"DATA DISABLE")) {
 				dataFlag = false;
 				// send SMS
-				gsm.sendSMS(mobileNumber, "DATA DISABLED");
+				if(smsReplyFlag) {
+					gsm.sendSMS(mobileNumber, "DATA DISABLED");
+				}
 				// Save setting to EEPROM
 				EEPROM.update(DATA_REPLY_LOCATION,0);
 			}
+			*/
+			else if(NULL != strstr(message,"MISSEDCALL ENABLE")) {
+				missedCallFlag = true;
+				// send SMS
+				if(smsReplyFlag){
+					gsm.sendSMS(mobileNumber, "MISSEDCALL ENABLED");
+				}
+				// Save setting to EEPROM
+				EEPROM.update(MISSEDCALL_LOCATION,1);
+			}
+			else if(NULL != strstr(message,"MISSEDCALL DISABLE")) {
+				missedCallFlag = false;
+				// send SMS
+				if(smsReplyFlag) {
+					gsm.sendSMS(mobileNumber, "MISSEDCALL DISABLED");
+				}
+				// Save setting to EEPROM
+				EEPROM.update(MISSEDCALL_LOCATION,0);
+			}
 			else if(NULL != strstr(message,"TURN ON")) {
 				state = 1;
-				if(UpdateResource(state) == -1) {
+				if(UpdateResource(state)) {
 					if(smsReplyFlag) {
 						// send SMS
 						gsm.sendSMS(mobileNumber,"TURNED ON");
@@ -477,7 +509,7 @@ void handleSMS(void) {
 			}
 			else if(NULL != strstr(message,"TURN OFF")) {
 				state = 0;
-				if(UpdateResource(state) == -1) {
+				if(!UpdateResource(state)) {
 					if(smsReplyFlag) {
 						// send SMS
 						gsm.sendSMS(mobileNumber,"TURNED OFF");
@@ -487,7 +519,8 @@ void handleSMS(void) {
 			}
 			else if(NULL != strstr(message,"STATUS")) {
 				state = -2;
-				char s = "STATUS ";
+				char *s = "STATUS ";
+				s = (char *)malloc(11);
 				if(UpdateResource(state)) {
 					strcat(s, "ON");					
 				}
@@ -619,11 +652,9 @@ void handleSMS(void) {
 
 bool getNumberFromString(char *inComingString, char *mobileNumber) {
 	byte i = 0;
-	char mobileNumber[16];
-	char *p,*p2,*s;
-	byte messageIndex = 0;
-	char message[MESSAGE_LENGTH];
-	char dateTime[24];
+	char *p, *p2, *s;
+	//s = (char *)malloc(55);
+	//memset(s, 0, 55);
 	
 	// check if string is call string or sms string
 	if(NULL != ( s = strstr(inComingString,"+CLIP:"))) {
@@ -656,9 +687,9 @@ int checkIfNumberAuthorized(char *mobileNumber) {
 	// Searching for the mobile number
 	char *s;
 	// AT+CPBF="mobileNumber"
-	sim900_send_cmd("AT+CPBF=\"");
+	sim900_send_cmd(F("AT+CPBF=\""));
 	sim900_send_cmd(mobileNumber);
-	sim900_send_cmd("\"\r\n");
+	sim900_send_cmd(F("\"\r\n"));
 	sim900_clean_buffer(gsmBuffer, sizeof(gsmBuffer));
 	sim900_read_buffer(gsmBuffer, sizeof(gsmBuffer));
 	

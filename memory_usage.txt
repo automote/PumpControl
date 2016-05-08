@@ -4,3 +4,4 @@ memory usage:
 1: PBEntryIndex
 2: smsReplyFlag
 3: dataFlag
+4: missedcallFlag
