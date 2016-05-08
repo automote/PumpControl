@@ -41,14 +41,15 @@ version 0.1
 #define PIN_RX	    8
 //#define PIN_POWER   9
 #define BAUDRATE	9600
-#define MESSAGE_LENGTH 20
+#define MESSAGE_LENGTH 30
 
 // Pump actuation pin
-#define PUMP_ON		4
-#define PUMP_OFF	5	
+#define PUMP_ON		10
+#define PUMP_OFF	11	
 
 // For debugging interface
 #define DEBUG	1
+#define DELAY_TIME 1000
 
 // Rings indentifier
 #define RINGS_TURN_ON		3
@@ -61,10 +62,10 @@ version 0.1
 
 // Global Varables
 bool rebootFlag = false;
-bool smsReplyFlag = false;
-bool missedCallFlag = false;
-bool dataFlag = false;
-char *password = "abcdef";  // Default password
+bool smsReplyFlag = true;
+bool missedCallFlag = true;
+bool dataFlag = true;
+char *password = "ABCDEF";  // Default password
 unsigned int PBEntryIndex = 1;
 char gsmBuffer[64];
 char *s = NULL;
@@ -73,6 +74,7 @@ bool pumpFlag = false;
 // Create an instance of GPRS library
 GPRS gsm(PIN_RX, PIN_TX, BAUDRATE);
 
+/*
 // Function Declaration
 void InitHardware(void);
 void SIMCardSetup(void);
@@ -80,7 +82,7 @@ void SMSServiceSetup(void);
 void calculateRings(void);
 void checkSMSContent(void);
 void checkAuthentication(void);
-
+*/
 // Main function starts here
 
 void setup() {
@@ -93,6 +95,7 @@ void setup() {
 	
 	// Setup SMS Service
 	SMSServiceSetup();  
+	Serial.println(F("Listening for SMS or Call"));
 }
 
 void loop() {
@@ -104,14 +107,16 @@ void loop() {
 		// If incoming is call		
 		// RING
 		// +CLIP: "+91XXXXXXXXXX",145,"",,"TT+91XXXXXXXXXX",0
-		if(NULL != strstr(gsmBuffer,"RING")) {
+		if(NULL != strstr(gsmBuffer,"+CLIP:")) {
 			if(missedCallFlag) {
+				Serial.println(F("handling calls"));
 				handleRings();
 			}
 		}
 		// If incoming is SMS
 		// +CMTI: "SM", 2
-		else if(NULL != (s = strstr(gsmBuffer,"+CMTI: \"SM\""))) { 
+		else if(NULL != strstr(gsmBuffer,"+CMTI:")) {
+			Serial.println(F("handling SMS"));
 			handleSMS();
 		}
 		sim900_clean_buffer(gsmBuffer,sizeof(gsmBuffer));
@@ -121,14 +126,14 @@ void loop() {
 	
 	if (rebootFlag) {
 		Serial.println(F("Rebooting device"));
-		delay(10000);
+		delay(10 * DELAY_TIME);
 		soft_restart();
 	}
 }
 
 void InitHardware(void) {
 	// Start Serial editor
-	Serial.begin(9600);
+	Serial.begin(BAUDRATE);
 	
 	if (EEPROM.read(500) != 786) {
 		//if not load default config files to EEPROM
@@ -145,32 +150,35 @@ void InitHardware(void) {
 	pinMode(PUMP_OFF, OUTPUT);
 	digitalWrite(PUMP_OFF, HIGH);
 	
+	delay(15 * DELAY_TIME);
 	// POWER ON the GSM module
 	while(!gsm.init()) {
 		Serial.println(F("Initialisation error"));
-		delay(1000);
+		delay(DELAY_TIME);
 		soft_restart();
 	}
 	
 	// Set the communication settings for SIM900
 	// Sent ATE0
 	sim900_check_with_cmd(F("ATE0\r\n"),"OK\r\n",CMD);
-	delay(1000);
+	delay(DELAY_TIME);
 	// Send AT+CLIP=1
 	sim900_check_with_cmd(F("AT+CLIP=1\r\n"),"OK\r\n",CMD);
-	delay(1000);
+	delay(DELAY_TIME);
 	
 }
 
 void writeInitalConfig(void) {
+	Serial.println(F("Writing default configuration"));
 	EEPROM.write(500, 786);
 	EEPROM.write(PB_ENTRY_INDEX_LOCATION, 1); // Set default PBEntryIndex = 1
-	EEPROM.write(SMS_REPLY_LOCATION, 0); // SMS Reply disabled
-	EEPROM.write(DATA_REPLY_LOCATION, 0); // DATA disabled
-	EEPROM.write(MISSEDCALL_LOCATION, 0); // Missed call disabled
+	EEPROM.write(SMS_REPLY_LOCATION, 1); // SMS Reply disabled
+	EEPROM.write(DATA_REPLY_LOCATION, 1); // DATA disabled
+	EEPROM.write(MISSEDCALL_LOCATION, 1); // Missed call disabled
 }
 
 void readConfig(void) {
+	Serial.println(F("Reading config"));
 	PBEntryIndex = EEPROM.read(1);
 	smsReplyFlag = (EEPROM.read(2) != 0)? true : false;
 	dataFlag = (EEPROM.read(3) != 0)? true : false;
@@ -183,7 +191,7 @@ void SIMCardSetup(void) {
 	char imei[16];
 	// Send AT+GSN
 	gsm.getIMEI(imei);
-	Serial.print(F("Received IMEI"));
+	Serial.print(F("Received IMEI "));
 	Serial.println(imei);
 	
 	// Generate Secret PASSWORD from IMEI
@@ -194,7 +202,7 @@ void SIMCardSetup(void) {
 	int rssi, ber;
 	// sent AT+CSQ
 	gsm.getSignalStrength(&rssi);
-	Serial.print(F("Signal Strngth is "));
+	Serial.print(F("Signal Strength is "));
 	Serial.println(rssi);
 		
 	// Check for SIM registration
@@ -218,57 +226,62 @@ void GeneratePassword(char* imei) {
 	// think of some mechanism
 	
 
-	Serial.println(F("PASSWORD generated"));
+	Serial.print(F("PASSWORD generated: "));
 	Serial.println(password);
 }
 
 void SMSServiceSetup(void) {
 	// Set SMS input mode
+	Serial.println(F("Setting input mode"));
 	// send AT+CMGF=1
 	sim900_check_with_cmd(F("AT+CMGF=1\r\n"),"OK\r\n",CMD);
-	delay(1000);
+	delay(DELAY_TIME);
 	
 	// Set the input character set
+	Serial.println(F("Setting character mode: GSM"));
 	// Send AT+CSCS="GSM"
 	sim900_check_with_cmd(F("AT+CSCS=\"GSM\"\r\n"),"OK\r\n",CMD);
-	delay(1000);
+	delay(DELAY_TIME);
 	
 	// Set SMS mode
+	Serial.println(F("Setting SMS message indications"));
 	// Send AT+CNMI=2,1,0,0,0
 	sim900_check_with_cmd(F("AT+CNMI=2,1,0,0\r\n"),"OK\r\n",CMD);
-	delay(1000);
+	delay(DELAY_TIME);
+	
 	// Save the settings for SMS
+	Serial.println(F("Saving settings to memory"));
 	// Send AT+CSAS=0
 	sim900_check_with_cmd(F("AT+CSAS=0\r\n"),"OK\r\n",CMD);
-	delay(1000);
+	delay(DELAY_TIME);
 	
 	Serial.println(F("SMS Service Ready"));
 }
 
 void handleRings(void) {
-	int counter = 1;
-	int state = -1;
+	byte counter = 1;
+	byte state = -1;
 	char authString[64];
 	char mobileNumber[16];
-	sim900_clean_buffer(gsmBuffer,sizeof(gsmBuffer));
-	sim900_read_buffer(gsmBuffer,sizeof(gsmBuffer),DEFAULT_TIMEOUT);
 	strcpy(authString,gsmBuffer);
 	// count the number of rings till you get RELEASE
-	while(strstr(gsmBuffer,"NO CARRIER") == NULL) {
+	do {
 		sim900_clean_buffer(gsmBuffer,sizeof(gsmBuffer));
 		sim900_read_buffer(gsmBuffer,sizeof(gsmBuffer),DEFAULT_TIMEOUT);
-		if(NULL != strstr(gsmBuffer,"RING")) {
+	
+		if(NULL != strstr(gsmBuffer,"+CLIP:")) {
 			counter++;
 		}
-	}
+	}while(NULL == strstr(gsmBuffer,"NO CARRIER"));
 	
-	Serial.println(counter);
+	Serial.print(counter);
 	Serial.println(F(" RINGS"));
 	getNumberFromString(authString, mobileNumber);
 	if(checkIfNumberAuthorized(mobileNumber) > 0) {
 		// Check the number of rings
 		switch (counter){
-			case RINGS_TURN_ON:
+			case 2:
+			case 3:
 				state = 1;
 				if(UpdateResource(state)) {
 					if(smsReplyFlag) {
@@ -279,7 +292,8 @@ void handleRings(void) {
 				}
 				break;
 				
-			case RINGS_TURN_OFF:
+			case 4:
+			case 5:
 				state = 0;
 				if(UpdateResource(state)) {
 					if(smsReplyFlag) {
@@ -290,12 +304,13 @@ void handleRings(void) {
 				}
 				break;
 				
-			case RINGS_STATUS:
-				state = -2;
+			case 6:
+			case 7:
+				state = 2;
 				char *s;
 				s = (char *)malloc(11);
 				strcpy(s,"STATUS ");
-				if(UpdateResource(state)) {
+				if(UpdateResource(state) > 0) {
 					strcat(s, "ON");					
 				}
 				else {
@@ -317,28 +332,33 @@ void handleRings(void) {
 
 int UpdateResource(int state) {
 	switch (state) {
+		
 		case 0:
 			digitalWrite(PUMP_OFF, LOW);
-			delay(1000);
+			delay(DELAY_TIME);
 			digitalWrite(PUMP_OFF, HIGH);
+			Serial.println(F("PUMP OFF"));
 			pumpFlag = false;
-			return pumpFlag;
+			return 1;
 			break;
 			
 		case 1:
 			digitalWrite(PUMP_ON, LOW);
-			delay(1000);
+			delay(DELAY_TIME);
 			digitalWrite(PUMP_ON, HIGH);
+			Serial.println(F("PUMP ON"));
 			pumpFlag = true;
-			return pumpFlag;
+			return 1;
 			break;
 			
-		case -2:
-			return pumpFlag;
+		case 2:
+			Serial.println(F("Sending pump status"));
+			return pumpFlag;			
 			break;
 			
 		default:
 			Serial.println(F("Invalid Resource"));
+			return -1;
 			break;
 	}
 }
@@ -364,6 +384,9 @@ void handleSMS(void) {
 		Serial.println(F("Printing SMS content"));
 		Serial.println(message);
 		
+		// delete SMS to save memory
+		gsm.deleteSMS(messageIndex);
+		
 		if(checkIfNumberAuthorized(mobileNumber) > 0) {
 			// check the content of the message
 			if(NULL != ( s = strstr(message,"AUTH"))) {
@@ -371,27 +394,29 @@ void handleSMS(void) {
 				// Extract the mobile number from string
 				s = strstr((char *)(s),"H");
 				s = s + 2; // we are on the first digit of mobile number
-				p = strstr((char *)(s),"\r"); // p is pointing to CR of the message string
 				if(NULL != s) {
 					i = 0;
-					while (s < p) {
+					while(i < 10) {
 						newMobileNumber[i++] = *(s++);
 					}
 					newMobileNumber[i] = '\0';
 				}
+				Serial.print(F("New mobile number is "));
 				Serial.println(newMobileNumber);
 				
 				// Make an entry into phonebook
-				//AT+CPBW=PBEntryIndex,mobileNumber,129,"TTmobileNumber"
+				//AT+CPBW=PBEntryIndex,"newmobileNumber",129,"TTmobileNumber"
+				Serial.print(F("PB index is "));
+				Serial.println(PBEntryIndex);
 				sim900_flush_serial();
-				sim900_send_cmd("AT+CPBW=");
+				sim900_send_cmd(F("AT+CPBW="));
 				itoa(PBEntryIndex, num, 10);
 				sim900_send_cmd(num);
-				sim900_send_cmd(",");
+				sim900_send_cmd(F(",\""));
 				sim900_send_cmd(newMobileNumber);
-				sim900_send_cmd(",129,\"TT");
+				sim900_send_cmd(F("\",129,\"TT\""));
 				sim900_send_cmd(newMobileNumber);
-				sim900_send_cmd("\r\n");
+				sim900_send_cmd(F("\"\r\n"));
 				
 				sim900_clean_buffer(gsmBuffer,sizeof(gsmBuffer));
 				sim900_read_buffer(gsmBuffer, sizeof(gsmBuffer), DEFAULT_TIMEOUT);
@@ -402,16 +427,16 @@ void handleSMS(void) {
 				Serial.println(F(" Authorised"));
 				// Save the index in EEPROM
 				EEPROM.update(PB_ENTRY_INDEX_LOCATION, PBEntryIndex);
+				gsm.sendSMS(mobileNumber, "Mobile Number Authorised");
 			}
 			else if(NULL != ( s = strstr(message,"UNAUTH"))) {
 				// UNAUTH 1234567890
 				// Extract the mobile number
 				s = strstr((char *)(s),"H");
 				s = s + 2; // we are on the first digit of mobile number
-				p = strstr((char *)(s),"\r"); // p is pointing to CR of the message string
 				if(NULL != s) {
 					i = 0;
-					while (s < p) {
+					while (i < 10) {
 						newMobileNumber[i++] = *(s++);
 					}
 					newMobileNumber[i] = '\0';
@@ -422,28 +447,35 @@ void handleSMS(void) {
 				// index = AT+CPBF="mobileNumber"
 				int index = checkIfNumberAuthorized(newMobileNumber);
 				
-				// Delete the entry from the phonebook
-				// AT+CPBW=index
-				sim900_flush_serial();
-				sim900_send_cmd("AT+CPBW=");
-				itoa(index, num, 10);
-				sim900_send_cmd(num);
-				sim900_send_cmd("\r\n");
-				
-				sim900_clean_buffer(gsmBuffer,sizeof(gsmBuffer));
-				sim900_read_buffer(gsmBuffer, sizeof(gsmBuffer), DEFAULT_TIMEOUT);
-				sim900_wait_for_resp("OK\r\n", CMD);
-								
-				Serial.print(F("Mobile Number "));
-				Serial.print(newMobileNumber);
-				Serial.println(F(" Unauthorised"));
-				
-				// PBEntryIndex - 1 == index
-				if(PBEntryIndex - 1 == index){
-					PBEntryIndex--;
-					// Save the index in EEPROM
-					EEPROM.update(PB_ENTRY_INDEX_LOCATION, 	PBEntryIndex);
+				if(index > 0) {
+					// Delete the entry from the phonebook
+					// AT+CPBW=index
+					sim900_flush_serial();
+					sim900_send_cmd(F("AT+CPBW="));
+					itoa(index, num, 10);
+					sim900_send_cmd(num);
+					sim900_send_cmd(F("\r\n"));
+
+					sim900_clean_buffer(gsmBuffer,sizeof(gsmBuffer));
+					sim900_read_buffer(gsmBuffer, sizeof(gsmBuffer), DEFAULT_TIMEOUT);
+					sim900_wait_for_resp("OK\r\n", CMD);
+									
+					Serial.print(F("Mobile Number "));
+					Serial.print(newMobileNumber);
+					Serial.println(F(" Unauthorised"));
+
+					// PBEntryIndex - 1 == index
+					if(PBEntryIndex - 1 == index){
+						PBEntryIndex--;
+						// Save the index in EEPROM
+						EEPROM.update(PB_ENTRY_INDEX_LOCATION, 	PBEntryIndex);
+					}
 				}
+				else {
+					Serial.println(F("invalid number"));
+					gsm.sendSMS(mobileNumber, "invalid number");
+				}
+				
 			}
 			else if(NULL != strstr(message,"SMS ENABLE")) {
 				smsReplyFlag = true;
@@ -453,13 +485,14 @@ void handleSMS(void) {
 				}
 				// Save settings to EEPROM
 				EEPROM.update(SMS_REPLY_LOCATION,1);
+				Serial.println(F("SMS ENABLED"));
 			}
 			else if(NULL != strstr(message,"SMS DISABLE")) {
 				smsReplyFlag = false;
 				// Save setting to EEPROM
 				EEPROM.update(SMS_REPLY_LOCATION,0);
+				Serial.println(F("SMS DISABLED"));
 			}
-			/*
 			else if(NULL != strstr(message,"DATA ENABLE")) {
 				dataFlag = true;
 				// send SMS
@@ -478,7 +511,6 @@ void handleSMS(void) {
 				// Save setting to EEPROM
 				EEPROM.update(DATA_REPLY_LOCATION,0);
 			}
-			*/
 			else if(NULL != strstr(message,"MISSEDCALL ENABLE")) {
 				missedCallFlag = true;
 				// send SMS
@@ -487,6 +519,7 @@ void handleSMS(void) {
 				}
 				// Save setting to EEPROM
 				EEPROM.update(MISSEDCALL_LOCATION,1);
+				Serial.println(F("MISSED CALL ENABLED"));
 			}
 			else if(NULL != strstr(message,"MISSEDCALL DISABLE")) {
 				missedCallFlag = false;
@@ -496,6 +529,7 @@ void handleSMS(void) {
 				}
 				// Save setting to EEPROM
 				EEPROM.update(MISSEDCALL_LOCATION,0);
+				Serial.println(F("MISSED CALL DISABLED"));
 			}
 			else if(NULL != strstr(message,"TURN ON")) {
 				state = 1;
@@ -503,9 +537,9 @@ void handleSMS(void) {
 					if(smsReplyFlag) {
 						// send SMS
 						gsm.sendSMS(mobileNumber,"TURNED ON");
-						Serial.println(F("PUMP turned ON"));
 					}
 				}
+				Serial.println(F("PUMP turned ON"));
 			}
 			else if(NULL != strstr(message,"TURN OFF")) {
 				state = 0;
@@ -513,15 +547,16 @@ void handleSMS(void) {
 					if(smsReplyFlag) {
 						// send SMS
 						gsm.sendSMS(mobileNumber,"TURNED OFF");
-						Serial.println(F("PUMP turned OFF"));
 					}
 				}
+				Serial.println(F("PUMP turned OFF"));
 			}
 			else if(NULL != strstr(message,"STATUS")) {
-				state = -2;
-				char *s = "STATUS ";
+				state = 2;
+				char *s;
 				s = (char *)malloc(11);
-				if(UpdateResource(state)) {
+				strcpy(s,"STATUS ");
+				if(UpdateResource(state) > 0) {
 					strcat(s, "ON");					
 				}
 				else {
@@ -530,16 +565,18 @@ void handleSMS(void) {
 				if(smsReplyFlag) {
 					// send SMS
 					gsm.sendSMS(mobileNumber,s);
-					Serial.println(F("PUMP status check"));
 				}
+				Serial.println(F("PUMP status check"));
 			}
 			else {
 				Serial.println(F("Invalid Command"));
 			}
 		}
 		else {
-			if(NULL != ( s = strstr(message, "AUTH"))) {	
-				// AUTH 1234567890 abcdef
+			if(NULL != ( s = strstr(message, "AUTH"))) {
+				Serial.print(F("Entry index is "));
+				Serial.println(PBEntryIndex);
+				// AUTH 1234567890 ABCDEF
 				// Extract the mobile number from string
 				s = strstr((char *)(s),"H");
 				s = s + 2; // we are on the first digit of mobile number
@@ -551,6 +588,7 @@ void handleSMS(void) {
 					}
 					newMobileNumber[i] = '\0';
 				}
+				Serial.print(F("New mobile number is "));
 				Serial.println(newMobileNumber);
 				
 				// get the password
@@ -561,24 +599,27 @@ void handleSMS(void) {
 					userPass[i++] = *(s++);
 				}
 				userPass[i] = '\0';
+				Serial.print(F("User password is "));
 				Serial.println(userPass);
 				
 				// Compare the password
 				if(!strcmp(userPass, password)) {
+					Serial.println(F("Password matched"));
 					// Make an entry into phonebook
 					//AT+CPBW=PBEntryIndex,mobileNumber,129,"TTmobileNumber"
 					sim900_flush_serial();
-					sim900_send_cmd("AT+CPBW=");
+					sim900_send_cmd(F("AT+CPBW="));
 					itoa(PBEntryIndex, num, 10);
 					sim900_send_cmd(num);
-					sim900_send_cmd(",");
+					sim900_send_cmd(F(",\""));
 					sim900_send_cmd(newMobileNumber);
-					sim900_send_cmd(",129,\"TT");
+					sim900_send_cmd(F("\",129,\"TT\""));
 					sim900_send_cmd(newMobileNumber);
-					sim900_send_cmd("\r\n");
+					sim900_send_cmd(F("\"\r\n"));
 
 					sim900_clean_buffer(gsmBuffer,sizeof(gsmBuffer));
 					sim900_read_buffer(gsmBuffer, sizeof(gsmBuffer), DEFAULT_TIMEOUT);
+					Serial.println(gsmBuffer);
 					sim900_wait_for_resp("OK\r\n", CMD);
 					PBEntryIndex++;
 					Serial.print(F("Mobile Number "));
@@ -586,9 +627,15 @@ void handleSMS(void) {
 					Serial.println(F(" Authorised"));
 					// Save the index in EEPROM
 					EEPROM.update(PB_ENTRY_INDEX_LOCATION, PBEntryIndex);
-					}
+					gsm.sendSMS(mobileNumber, "Mobile Number Authorised");
+				}
+				else {
+						Serial.println(F("Password did not match"));
+				}
 			}
 			else if(NULL != ( s = strstr(message,"UNAUTH"))) {
+				Serial.print(F("Entry index is "));
+				Serial.println(PBEntryIndex);
 				// UNAUTH 1234567890 abcdef
 				// Extract the mobile number from string
 				s = strstr((char *)(s),"H");
@@ -601,6 +648,7 @@ void handleSMS(void) {
 					}
 					newMobileNumber[i] = '\0';
 				}
+				Serial.print(F("New mobile number is "));
 				Serial.println(newMobileNumber);
 				
 				// get the password
@@ -611,42 +659,59 @@ void handleSMS(void) {
 					userPass[i++] = *(s++);
 				}
 				userPass[i] = '\0';
+				Serial.print(F("User password is "));
 				Serial.println(userPass);
 				
 				// Compare the passwords
 				if(!strcmp(userPass, password)) {
+					Serial.println(F("Password matched"));
 					// Find the entry from the phonebook
 					// index = AT+CPBF="mobileNumber"
 					int index = checkIfNumberAuthorized(newMobileNumber);
 
-					// Delete the entry from the phonebook
-					// AT+CPBW=index
-					sim900_flush_serial();
-					sim900_send_cmd("AT+CPBW=");
-					itoa(index, num, 10);
-					sim900_send_cmd(num);
-					sim900_send_cmd("\r\n");
+					if(index > 0) {
+						// Delete the entry from the phonebook
+						// AT+CPBW=index
+						sim900_flush_serial();
+						sim900_send_cmd(F("AT+CPBW="));
+						itoa(index, num, 10);
+						sim900_send_cmd(num);
+						sim900_send_cmd(F("\r\n"));
 
-					sim900_clean_buffer(gsmBuffer,sizeof(gsmBuffer));
-					sim900_read_buffer(gsmBuffer, sizeof(gsmBuffer), DEFAULT_TIMEOUT);
-					sim900_wait_for_resp("OK\r\n", CMD);
-									
-					Serial.print(F("Mobile Number "));
-					Serial.print(newMobileNumber);
-					Serial.println(F(" Unauthorised"));
+						sim900_clean_buffer(gsmBuffer,sizeof(gsmBuffer));
+						sim900_read_buffer(gsmBuffer, sizeof(gsmBuffer), DEFAULT_TIMEOUT);
+						sim900_wait_for_resp("OK\r\n", CMD);
+										
+						Serial.print(F("Mobile Number "));
+						Serial.print(newMobileNumber);
+						Serial.println(F(" Unauthorised"));
 
-					// PBEntryIndex - 1 == index
-					if(PBEntryIndex - 1 == index){
-						PBEntryIndex--;
-						// Save the index in EEPROM
-						EEPROM.update(PB_ENTRY_INDEX_LOCATION, 	PBEntryIndex);
+						// PBEntryIndex - 1 == index
+						if(PBEntryIndex - 1 == index){
+							PBEntryIndex--;
+							Serial.println(F("new PB index is "));
+							Serial.println(PBEntryIndex);
+							// Save the index in EEPROM
+							EEPROM.update(PB_ENTRY_INDEX_LOCATION, 	PBEntryIndex);
+						}
 					}
+					else {
+						Serial.println(F("invalid number"));
+						gsm.sendSMS(mobileNumber, "invalid number");
+					}
+					
+				}
+				else {
+						Serial.println(F("Password did not match"));
 				}
 			}
 			else {
 				Serial.println(F("invalid authorization command"));
 			}
 		}
+	}
+	else {
+		Serial.println(F("message index not found"));
 	}
 }
 
@@ -681,7 +746,7 @@ bool getNumberFromString(char *inComingString, char *mobileNumber) {
 	}
 	return false;
 }
-		
+
 int checkIfNumberAuthorized(char *mobileNumber) {
 	// check this mobile number with the saved numbers and return the index if found
 	// Searching for the mobile number
@@ -696,9 +761,12 @@ int checkIfNumberAuthorized(char *mobileNumber) {
 	// +CPBF: 1,"+91XXXXXXXXXX",145,"TT+91XXXXXXXXXX"
 	// If number is present
 	if(NULL != ( s = strstr(gsmBuffer, "+CPBF:"))) {
-		s = strstr((char *)(s),":");
-		return atoi(s+1);	
+		s = strstr((char *)(s),":"); 
+		Serial.println(F("number is authorized"));
+		return atoi(s+2);	
 	}
-	else 
+	else {
+		Serial.println(F("number is not authorized"));
 		return -1;
+	}
 }
