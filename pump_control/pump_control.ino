@@ -269,6 +269,9 @@ void handleRings(void) {
 	byte state = -1;
 	char authString[64];
 	char mobileNumber[16];
+	char *s;
+	s = (char *)malloc(11);
+	
 	strcpy(authString,gsmBuffer);
 	// count the number of rings till you get RELEASE
 	do {
@@ -290,11 +293,8 @@ void handleRings(void) {
 			case 3:
 				state = 1;
 				if(UpdateResource(state)) {
-					if(smsReplyFlag) {
-						// send SMS
-						gsm.sendSMS(mobileNumber,"TURNED ON");
-						Serial.println(F("PUMP turned ON"));
-					}
+					strcpy(s,"TURNED ON");
+					Serial.println(F("PUMP turned ON"));
 				}
 				break;
 				
@@ -302,19 +302,14 @@ void handleRings(void) {
 			case 5:
 				state = 0;
 				if(UpdateResource(state)) {
-					if(smsReplyFlag) {
-						// send SMS
-						gsm.sendSMS(mobileNumber,"TURNED OFF");
-						Serial.println(F("PUMP turned OFF"));
-					}
+					strcpy(s,"TURNED OFF");
+					Serial.println(F("PUMP turned OFF"));
 				}
 				break;
 				
 			case 6:
 			case 7:
 				state = 2;
-				char *s;
-				s = (char *)malloc(11);
 				strcpy(s,"STATUS ");
 				if(UpdateResource(state) > 0) {
 					strcat(s, "ON");					
@@ -322,18 +317,19 @@ void handleRings(void) {
 				else {
 					strcat(s, "OFF");
 				}
-				if(smsReplyFlag) {
-					// send SMS
-					gsm.sendSMS(mobileNumber,s);
-					Serial.println(F("PUMP status check"));
-				}
+				Serial.println(F("PUMP status check"));
 				break;
 				
 			default:
 				Serial.println(F("invalid RINGS"));
 				break;
 		}
+		if(smsReplyFlag) {
+			// send SMS
+			gsm.sendSMS(mobileNumber,s);
+		}
 	}
+	Serial.println(F("call handling done"));
 }
 
 int UpdateResource(int state) {
@@ -407,7 +403,7 @@ void handleSMS(byte messageIndex) {
 			Serial.println(newMobileNumber);
 			
 			// Make an entry into phonebook
-			//AT+CPBW=PBEntryIndex,"newmobileNumber",129,"TTmobileNumber"
+			//AT+CPBW=PBEntryIndex,"newmobileNumber",145,"TTmobileNumber"
 			PBEntryIndex++;
 			Serial.print(F("PB index is "));
 			Serial.println(PBEntryIndex);
@@ -415,9 +411,9 @@ void handleSMS(byte messageIndex) {
 			sim900_send_cmd(F("AT+CPBW="));
 			itoa(PBEntryIndex, num, 10);
 			sim900_send_cmd(num);
-			sim900_send_cmd(F(",\""));
+			sim900_send_cmd(F(",\"+91"));
 			sim900_send_cmd(newMobileNumber);
-			sim900_send_cmd(F("\",129,\"TT\""));
+			sim900_send_cmd(F("\",145,\"TT+91"));
 			sim900_send_cmd(newMobileNumber);
 			sim900_send_cmd(F("\"\r\n"));
 			
@@ -611,16 +607,16 @@ void handleSMS(byte messageIndex) {
 			if(!strcmp(userPass, password)) {
 				Serial.println(F("Password matched"));
 				// Make an entry into phonebook
-				//AT+CPBW=PBEntryIndex,mobileNumber,129,"TTmobileNumber"
+				//AT+CPBW=PBEntryIndex,mobileNumber,145,"TTmobileNumber"
 				PBEntryIndex++;
 				sim900_flush_serial();
 				sim900_send_cmd(F("AT+CPBW="));
 				itoa(PBEntryIndex, num, 10);
 				sim900_send_cmd(num);
 				Serial.println(num);
-				sim900_send_cmd(F(",\""));
+				sim900_send_cmd(F(",\"+91"));
 				sim900_send_cmd(newMobileNumber);
-				sim900_send_cmd(F("\",129,\"TT\""));
+				sim900_send_cmd(F("\",145,\"TT+91"));
 				sim900_send_cmd(newMobileNumber);
 				sim900_send_cmd(F("\"\r\n"));
 
@@ -720,6 +716,7 @@ void handleSMS(byte messageIndex) {
 			Serial.println(F("invalid authorization command"));
 		}
 	}
+	Serial.println(F("SMS handling done"));
 }
 
 bool getNumberFromString(char *inComingString, char *mobileNumber) {
