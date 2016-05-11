@@ -769,7 +769,7 @@ void handleSMS(byte messageIndex) {
 				}
 				newMobileNumber[i] = '\0';
 			}
-#ofdef DEBUG
+#ifdef DEBUG
 			Serial.print(F("New mobile number is "));
 			Serial.println(newMobileNumber);
 #endif
@@ -852,8 +852,6 @@ void handleSMS(byte messageIndex) {
 bool getNumberFromString(char *inComingString, char *mobileNumber) {
 	byte i = 0;
 	char *p, *p2, *s;
-	//s = (char *)malloc(55);
-	//memset(s, 0, 55);
 	
 	// check if string is call string or sms string
 	if(NULL != ( s = strstr(inComingString,"+CLIP:"))) {
