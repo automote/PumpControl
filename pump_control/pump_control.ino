@@ -60,6 +60,11 @@ version 0.1
 #define DATA_REPLY_LOCATION 3
 #define MISSEDCALL_LOCATION 4
 
+// Global Constant
+const char* company_name = "thingTronics";
+const char* hardware_version = "v1.0";
+const char* software_version = "v1.1";
+
 // Global Varables
 bool rebootFlag = false;
 bool smsReplyFlag = true;
@@ -140,6 +145,15 @@ void InitHardware(void) {
 	}
 	// Read the config settings from EEPROM
 	readConfig();
+	
+	
+	// Printing company info
+	Serial.print(F("Comapany Name: "));
+	Serial.println(company_name);
+	Serial.print(F("Hardware Version: "));
+	Serial.println(hardware_version);
+	Serial.print(F("Software Version: "));
+	Serial.println(software_version);
 	Serial.println(F("Setting up the hardware"));
 	
 	// prepare the PUMP control GPIO
