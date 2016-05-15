@@ -40,12 +40,12 @@ version 0.1
 #define PIN_TX		7
 #define PIN_RX	    8
 //#define PIN_POWER   9
-#define BAUDRATE	9600
+#define BAUDRATE    9600
 #define MESSAGE_LENGTH 30
 
 // Pump actuation pin
 #define PUMP_ON		10
-#define PUMP_OFF	11	
+#define PUMP_OFF    11	
 
 // For debugging interface
 #define DEBUG
@@ -69,7 +69,7 @@ const char* software_version = "v1.1";
 bool rebootFlag = false;
 bool smsReplyFlag = true;
 bool missedCallFlag = true;
-bool dataFlag = true;
+bool dataFlag = false;
 char *password = "ABCDEF";  // Default password
 unsigned int PBEntryIndex = 1;
 byte messageIndex = 0;
@@ -185,9 +185,9 @@ void writeInitalConfig(void) {
 	Serial.println(F("Writing default configuration"));
 	EEPROM.write(500, 175);
 	EEPROM.write(PB_ENTRY_INDEX_LOCATION, 1); // Set default PBEntryIndex = 1
-	EEPROM.write(SMS_REPLY_LOCATION, 1); // SMS Reply disabled
-	EEPROM.write(DATA_REPLY_LOCATION, 1); // DATA disabled
-	EEPROM.write(MISSEDCALL_LOCATION, 1); // Missed call disabled
+	EEPROM.write(SMS_REPLY_LOCATION, 1); // SMS Reply enabled
+	EEPROM.write(DATA_REPLY_LOCATION, 0); // DATA disabled
+	EEPROM.write(MISSEDCALL_LOCATION, 1); // Missed call enabled
 }
 
 void readConfig(void) {
@@ -600,7 +600,7 @@ void handleSMS(byte messageIndex) {
 			// Save setting to EEPROM
 			EEPROM.update(MISSEDCALL_LOCATION,1);
 #ifdef DEBUG
-			Serial.println(F("MISSED CALL ENABLED"));
+			Serial.println(F("MISSEDCALL ENABLED"));
 #endif
 		}
 		else if(NULL != strstr(message,"MISSEDCALL DISABLE")) {
