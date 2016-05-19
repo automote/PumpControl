@@ -49,12 +49,16 @@ version 0.1
 
 // For debugging interface
 #define DEBUG
-#define DELAY_TIME 1000
+#define DELAY_TIME 500
 
+/*
 // Rings indentifier
 #define RINGS_TURN_ON		3
 #define RINGS_TURN_OFF		5
 #define RINGS_STATUS		7
+*/
+
+// EEPROM locations
 #define PB_ENTRY_INDEX_LOCATION 1
 #define SMS_REPLY_LOCATION 2
 #define DATA_REPLY_LOCATION 3
@@ -163,7 +167,7 @@ void InitHardware(void) {
 	pinMode(PUMP_OFF, OUTPUT);
 	digitalWrite(PUMP_OFF, HIGH);
 	
-	delay(15 * DELAY_TIME);
+	delay(20 * DELAY_TIME);
 	// POWER ON the GSM module
 	while(!gsm.init()) {
 		Serial.println(F("Initialisation error"));
