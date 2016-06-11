@@ -48,7 +48,7 @@ version 0.1
 #define PUMP_OFF    11	
 
 // For debugging interface
-#define DEBUG
+#define DEBUG 1
 #define DELAY_TIME 500
 
 /*
@@ -78,7 +78,6 @@ char *password = "ABCDEF";  // Default password
 unsigned int PBEntryIndex = 1;
 byte messageIndex = 0;
 char gsmBuffer[64];
-char *s = NULL;
 bool pumpFlag = false;
 
 // Create an instance of GPRS library
@@ -127,9 +126,10 @@ void loop() {
 		sim900_clean_buffer(gsmBuffer,sizeof(gsmBuffer));
 	}
 	
-	else
-		delay(100);
-	
+	else {
+		delay(100);		
+	}
+			
 	if (rebootFlag) {
 		Serial.println(F("Rebooting device"));
 		delay(10 * DELAY_TIME);
@@ -279,6 +279,7 @@ void SMSServiceSetup(void) {
 	delay(DELAY_TIME);
 	
 	Serial.println(F("SMS Service Ready"));
+	
 }
 
 void handleRings(void) {
@@ -373,6 +374,7 @@ void handleRings(void) {
 		}
 	}
 	Serial.println(F("call handling done"));
+	//free(s);
 }
 
 int UpdateResource(int state) {
@@ -426,6 +428,7 @@ void handleSMS(byte messageIndex) {
 	char *s, *p;
 	char num[4];
 	byte i = 0;
+	s = (char *)malloc(60);
 	
 	// read SMS content
 	gsm.readSMS(messageIndex, message, MESSAGE_LENGTH, mobileNumber, dateTime);
@@ -647,6 +650,7 @@ void handleSMS(byte messageIndex) {
 			state = 2;
 			char *s;
 			s = (char *)malloc(60);
+		
 			// construct the status string
 			strcpy(s,"PUMP ");
 			if(UpdateResource(state) > 0)
@@ -680,6 +684,16 @@ void handleSMS(byte messageIndex) {
 			Serial.println(F("Sending device status"));
 #endif
 		}
+		else if(NULL != strstr(message,"FACTORY RESET")) {
+			if(smsReplyFlag) {
+					// send SMS
+					gsm.sendSMS(mobileNumber,"STARTING FACTORY RESET");
+				}
+#ifdef DEBUG			
+			Serial.println(F("Starting factory reset"));
+#endif				
+			factoryReset();
+			}
 		else {
 #ifdef DEBUG
 			Serial.println(F("Invalid Command"));
@@ -904,6 +918,7 @@ int checkIfNumberAuthorized(char *mobileNumber) {
 	char *s, *p;
 	char index[4];
 	byte i = 0;
+	s = (char *)malloc(60);
 	// AT+CPBF="mobileNumber"
 	sim900_send_cmd(F("AT+CPBF=\""));
 	sim900_send_cmd(mobileNumber);
@@ -929,5 +944,25 @@ int checkIfNumberAuthorized(char *mobileNumber) {
 	else {
 		Serial.println(F("number is not authorized"));
 		return -1;
+	}
+}
+
+void factoryReset(void) {
+	// Remove magic number
+	EEPROM.write(500, 0);
+	int i;
+	char num[4];
+#ifdef DEBUG
+	Serial.println(F("Removing Phonebook entries"));
+	Serial.print(F("Phonebook entry index is "));
+	Serial.println(PBEntryIndex);
+#endif
+	// Remove pbonebook entries
+	for (i = 1; i <= PBEntryIndex; i++) {
+		sim900_send_cmd(F("AT+CPBW="));
+		itoa(i, num, 10);
+		sim900_send_cmd(num);
+		sim900_send_cmd(F("\r\n"));
+		sim900_wait_for_resp("OK\r\n", CMD);
 	}
 }
