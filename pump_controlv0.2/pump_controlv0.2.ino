@@ -82,6 +82,19 @@ char providerName[10];
 // Create an instance of GPRS library
 GPRS gsm(PIN_RX, PIN_TX, BAUDRATE);
 
+// Function Definitions
+void InitHardware(void);
+void writeInitalConfig(void);
+void readConfig(void);
+void GeneratePassword(char* imei);
+void SIMCardSetup(void);
+void SMSServiceSetup(void);
+void handleRings(void); 
+void handleSMS(byte messageIndex);
+int UpdateResource(int state);
+bool getNumberFromString(char *inComingString, char *mobileNumber);
+int checkIfNumberAuthorized(char *mobileNumber);
+
 // Main function starts here
 
 void setup() {
@@ -147,8 +160,7 @@ void InitHardware(void) {
 		writeInitalConfig();
 	}
 	// Read the config settings from EEPROM
-	readConfig();
-	
+	readConfig();	
 	
 	// Printing company info
 	Serial.println("---------------------------");
@@ -330,8 +342,11 @@ void handleRings(void) {
 				strcpy(dateTime_buffer,dateTime);
 				if(UpdateResource(state)) {
 					strcpy(s,"TURNED ON");
-					// send SMS
-					gsm.sendSMS(mobileNumber,s);
+					
+					if(smsReplyFlag) {
+						// send SMS
+						gsm.sendSMS(mobileNumber,s);
+					}
 #ifdef DEBUG
 					Serial.println(F("PUMP turned ON"));
 #endif
@@ -341,18 +356,20 @@ void handleRings(void) {
 			case 4:
 			case 5:
 				state = 0;
-				char t1buffer[100]="THE PUMP IS TURNED OFF.\nTURNED ON TIME IS ";
+				char t1buffer[140];
+				strcpy(t1buffer,"THE PUMP IS TURNED OFF.\nTURNED ON TIME IS ");
 				strcat(t1buffer,dateTime_buffer);
 				if(UpdateResource(state)) {
 					strcpy(s,"TURNED OFF");
 
-				if(smsReplyFlag) {
-					// send SMS
-					gsm.sendSMS(mobileNumber,t1buffer);
-				}
+					if(smsReplyFlag) {
+						// send SMS
+						gsm.sendSMS(mobileNumber,t1buffer);
+					}
 #ifdef DEBUG
 				Serial.println(F("PUMP turned OFF"));
 #endif
+				}
 				break;
 				
 			case 6:
@@ -412,7 +429,8 @@ int UpdateResource(int state) {
 	switch (state) {
 		
 		case 0:
-			digitalWrite(PUMP_OFF, LOW);
+			{
+				digitalWrite(PUMP_OFF, LOW);
 			delay(DELAY_TIME);
 			digitalWrite(PUMP_OFF, HIGH);
 #ifdef DEBUG
@@ -421,6 +439,7 @@ int UpdateResource(int state) {
 			pumpFlag = false;
 			return 1;
 			break;
+			}
 			
 		case 1:
 			digitalWrite(PUMP_ON, LOW);
@@ -432,7 +451,7 @@ int UpdateResource(int state) {
 			pumpFlag = true;
 			return 1;
 			break;
-			
+		
 		case 2:
 #ifdef DEBUG
 			Serial.println(F("Sending pump status"));
@@ -686,6 +705,7 @@ void handleSMS(byte messageIndex) {
 			// BALANCE *123#
 			char code[6];
 			char USSDResponse[140];
+			char resultCode[2];
 			s = s + 8; // we are on * of USSD code
 			p = strstr((char *)(s),"#"); // p is pointing to # of the message string
 			
