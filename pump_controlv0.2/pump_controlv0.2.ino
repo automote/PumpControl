@@ -701,9 +701,9 @@ void handleSMS(byte messageIndex) {
 			Serial.println(F("PUMP turned OFF"));
 #endif		
 		}
-		else if(NULL != strstr(message,"BALANCE")) {
+		else if(NULL != (s = strstr(message,"BALANCE"))) {
 			// BALANCE *123#
-			char code[6];
+			char code[8];
 			char USSDResponse[140];
 			char resultCode[2];
 			s = s + 8; // we are on * of USSD code
@@ -711,7 +711,7 @@ void handleSMS(byte messageIndex) {
 			
 			if(NULL != s) {
 				i = 0;
-				while (s < p) {
+				while (s <= p) {
 					code[i++] = *(s++);
 				}
 				code[i] = '\0';
