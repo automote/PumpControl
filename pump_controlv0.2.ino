@@ -204,7 +204,6 @@ void readConfig(void) {
 }
 
 void SIMCardSetup(void) {
-		
 	// check IMEI of device
 	char imei[16];
 	// Send AT+GSN
@@ -219,6 +218,7 @@ void SIMCardSetup(void) {
 	GeneratePassword(imei);
 	
 	// Check for Service Provider's Name
+	// AT+CSPN?
 	gsm.getProviderName(providerName);
 	Serial.println("-------------------------");
 	Serial.print("PROVIDER NAME :");
@@ -239,15 +239,26 @@ void SIMCardSetup(void) {
 	gsm.getSIMRegistration(&networkType);
 	if( networkType == 1 || networkType == 5) {
 		Serial.println(F("SIM is registered"));
-		if(networkType == 1)
+		if(networkType == 1) {
+#ifdef DEBUG
 			Serial.println(F("NETWORK type is LOCAL (1)"));
-		else if(networkType == 5)
+#endif
+		}
+		else if(networkType == 5) {
+#ifdef DEBUG
 			Serial.println(F("NETWORK type is ROAMING (5)"));
+#endif
+		}
 	}
 	else {
 		Serial.println(F("SIM is not registered"));
 		soft_restart();
 	}
+	
+	// Set the clock to update from Service Provider
+	// AT+CLTS=1
+	sim900_check_with_cmd(F("AT+CLTS=1\r\n"),"OK\r\n",CMD);
+	delay(DELAY_TIME);
 }
 
 void GeneratePassword(char* imei) {
@@ -283,8 +294,6 @@ void SMSServiceSetup(void) {
 	// Send AT+CSAS=0
 	sim900_check_with_cmd(F("AT+CSAS=0\r\n"),"OK\r\n",CMD);
 	delay(DELAY_TIME);
-	sim900_check_with_cmd(F("AT+CLTS=1\r\n"),"OK\r\n",CMD);
-  delay(10*DELAY_TIME);
 	Serial.println(F("SMS Service Ready"));
 }
 
@@ -315,41 +324,40 @@ void handleRings(void) {
 		switch (counter){
 			case 2:
 			case 3:
-				{state = 1;
+				state = 1;
 				//gsm.getDateTime(char *buffer)
 				gsm.getDateTime(dateTime);
 				strcpy(dateTime_buffer,dateTime);
 				if(UpdateResource(state)) {
-				 strcpy(s,"TURNED ON");
-             // send SMS
-         gsm.sendSMS(mobileNumber,s);
+					strcpy(s,"TURNED ON");
+					// send SMS
+					gsm.sendSMS(mobileNumber,s);
 #ifdef DEBUG
 					Serial.println(F("PUMP turned ON"));
 #endif
-				}}
+				}
 				break;
 				
 			case 4:
 			case 5:
-				{state = 0;
+				state = 0;
 				char t1buffer[100]="THE PUMP IS TURNED OFF.\nTURNED ON TIME IS ";
 				strcat(t1buffer,dateTime_buffer);
 				if(UpdateResource(state)) {
 					strcpy(s,"TURNED OFF");
 
-        if(smsReplyFlag) {
-      // send SMS
-      gsm.sendSMS(mobileNumber,t1buffer);
-        }
+				if(smsReplyFlag) {
+					// send SMS
+					gsm.sendSMS(mobileNumber,t1buffer);
+				}
 #ifdef DEBUG
-					Serial.println(F("PUMP turned OFF"));
+				Serial.println(F("PUMP turned OFF"));
 #endif
-				} }
 				break;
 				
 			case 6:
 			case 7:
-				{state = 2;
+				state = 2;
 				// construct the status string
 				strcpy(s,"PUMP ");
 				if(UpdateResource(state) > 0)
@@ -358,32 +366,34 @@ void handleRings(void) {
 					strcat(s, "OFF");
 				
 				strcat(s, "\nSMS ");
+				
 				if(smsReplyFlag)
 					strcat(s, "ENABLED");
 				else
 					strcat(s, "DISABLED");
 				
 				strcat(s, "\nDATA ");
+				
 				if(dataFlag)
 					strcat(s, "ENABLED");
 				else
 					strcat(s, "DISABLED");
 				
 				strcat(s, "\nMISSEDCALL ");
+				
 				if(missedCallFlag)
 					strcat(s, "ENABLED");
 				else
 					strcat(s, "DISABLED");
              
-        if(smsReplyFlag) {
-      // send SMS
-      gsm.sendSMS(mobileNumber,s);
-     }
+				if(smsReplyFlag) {
+					// send SMS
+					gsm.sendSMS(mobileNumber,s);
+				}
 		
 #ifdef DEBUG
 				Serial.println(F("PUMP status check"));
 #endif
-		}  
 				break;
 				
 			default:
@@ -672,46 +682,37 @@ void handleSMS(byte messageIndex) {
 			Serial.println(F("PUMP turned OFF"));
 #endif		
 		}
-		
-     if(NULL != strstr(message,"BALANCE")) {
-           // Serial.println(F("handling SMS"));
-           char resp[140]={'\0'};
-      
-                        char b[25]={'\0'};
-                        char a[25];
-                        
-                  int i=8,j=0;
-                  while(message[i]!='#')
-                  {
-                   b[j]=message[i];
-                   j++;
-                   i++;
-                   if(j>22)
-                   {
-                    break;
-                    }
-                    }
-              b[j]=message[i];
-              Serial.println("the entered USSD string is ");
-              Serial.print(b);
-             
-               delay(4000);
-              sim900_clean_buffer(resp, sizeof(resp)); 
-              gsm.sendUSSDSynchronous(b,a, resp);
-              delay(4000);
-              gsm.cancelUSSDSession();
-              Serial.println(" of response");
-              Serial.println(resp);
+		else if(NULL != strstr(message,"BALANCE")) {
+			// BALANCE *123#
+			char code[6];
+			char USSDResponse[140];
+			s = s + 8; // we are on * of USSD code
+			p = strstr((char *)(s),"#"); // p is pointing to # of the message string
+			
+			if(NULL != s) {
+				i = 0;
+				while (s < p) {
+					code[i++] = *(s++);
+				}
+				code[i] = '\0';
+			}
+#ifdef DEBUG			
+			Serial.print(F("The USSD code is "));
+			Serial.println(code);
+#endif		
+			sim900_flush_serial();
+			gsm.sendUSSDSynchronous(code,resultCode,USSDResponse);
+            gsm.cancelUSSDSession();
+#ifdef DEBUG			
+            Serial.print(F("Sending Response "));
+            Serial.println(USSDResponse);
+#endif			
 
-              gsm.sendSMS(mobileNumber,resp);
- 
-              delay(1000);
+            gsm.sendSMS(mobileNumber,USSDResponse);
 #ifdef DEBUG
-      Serial.println(F("USSD response was send"));
+			Serial.println(F("USSD response sent"));
 #endif  
-
-     }
-		
+		}
 		else if(NULL != strstr(message,"STATUS")) {
 			state = 2;
 			char *s;
