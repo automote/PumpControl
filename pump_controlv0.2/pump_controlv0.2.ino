@@ -145,7 +145,7 @@ void loop() {
 	if (rebootFlag) {
 		Serial.println(F("Rebooting device"));
 		delay(10 * DELAY_TIME);
-		soft_restart();
+		restartFun();
 	}
 }
 
@@ -185,7 +185,7 @@ void InitHardware(void) {
 	while(!gsm.init()) {
 		Serial.println(F("Initialisation error"));
 		delay(DELAY_TIME);
-		soft_restart();
+		restartFun();
 	}
 	
 	// Set the communication settings for SIM900
@@ -264,7 +264,7 @@ void SIMCardSetup(void) {
 	}
 	else {
 		Serial.println(F("SIM is not registered"));
-		soft_restart();
+		restartFun();
 	}
 	
 	// Set the clock to update from Service Provider
@@ -1020,4 +1020,10 @@ int checkIfNumberAuthorized(char *mobileNumber) {
 		Serial.println(F("number is not authorized"));
 		return -1;
 	}
+}
+void restartFun(void) {
+	Serial.println("Restarting..........");
+	sim900_check_with_cmd("AT+CFUN=1,1\r\n", "OK\r\n", CMD);
+	delay(DELAY_TIME);
+	soft_restart();
 }
