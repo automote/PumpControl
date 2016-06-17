@@ -84,6 +84,7 @@ char providerName[10];
 GPRS gsm(PIN_RX, PIN_TX, BAUDRATE);
 
 // Function Definitions
+void restartFun(void);
 void InitHardware(void);
 void writeInitalConfig(void);
 void readConfig(void);
