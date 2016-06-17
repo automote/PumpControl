@@ -1023,7 +1023,9 @@ int checkIfNumberAuthorized(char *mobileNumber) {
 }
 void restartFun(void) {
 	Serial.println("Restarting..........");
+	//restart the SIM module
 	sim900_check_with_cmd("AT+CFUN=1,1\r\n", "OK\r\n", CMD);
 	delay(DELAY_TIME);
+	//restart the Arduino
 	soft_restart();
 }
