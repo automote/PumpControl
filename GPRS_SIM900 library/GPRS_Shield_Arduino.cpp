@@ -466,6 +466,58 @@ bool GPRS::getDateTime(char *buffer)
     return false;
 }
 
+time_t GPRS::getLocalTime()
+{
+  char buffer[25];
+  
+  // Call getDateTime function to get network timestamp
+  getDateTime(buffer);
+  
+  // Setup time structure to store the current time
+  // Time stamp is received in "14/11/13,21:14:41+04" format
+  struct tm cal = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0, NULL};
+  strptime(timestamp, "%y/%m/%d,%H:%M:%S", &cal);
+  // Converting time structure to seconds
+  return mktime(&cal);  
+}
+
+time_t GPRS::getLocalTime(char *buffer)
+{
+  // Setup time structure to store the current time
+  // Time stamp is received in "14/11/13,21:14:41+04" format
+  struct tm cal = {0, 0, 0, 0, 0, 0, 0, 0, -1};
+  strptime(buffer, "%y/%m/%d,%H:%M:%S", &cal);
+  // Converting time structure to seconds
+  return mktime(&cal);  
+}
+
+void GPRS::formatDiffTime(time_t diffTime, char *buffer)
+{
+	int hours = 0;
+	int minutes = 0;
+	int seconds = 0;
+	char h[3], m[3], s[3];
+	
+	// returns buffer in HH:MM:SS format
+	hours = diffTime / 3600;
+	diffTime %= 3600; 
+	minutes = diffTime / 60;
+	seconds = diffTime % 60;
+	
+	// Convert to string
+	itoa(hours,h, 10);
+	itoa(minutes, m, 10);
+	itoa(seconds, s, 10);
+	
+	// Join the string in HH:MM:SS format
+	strcpy(buffer,h);
+	strcat(buffer, ":");
+	strcat(buffer, m);
+	strcat(buffer,":");
+	strcat(buffer, s);
+		
+}
+
 bool GPRS::getIMEI(char *buffer)
 {
 	//AT+GSN

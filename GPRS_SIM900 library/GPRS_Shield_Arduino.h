@@ -33,6 +33,7 @@
 #define __GPRS_SHIELD_ARDUINO_H__
 
 #include "sim900.h"
+#include "time.h"   // For time library
 
 /** GPRS class.
  *  used to realize GPRS communication
@@ -176,19 +177,39 @@ public:
      */
     bool isCallActive(char *number);  
 
-    /** get DateTime from SIM900 (see AT command: AT+CLTS=1) as string
+    /** get DateTime from SIM900 (see AT command: AT+CCLK?) as string
      *  @param
+	 *		datetime buffer
      *  @returns
      *      true on success
      *      false on error
      */        
     bool getDateTime(char *buffer);
-	/** get Signal Strength from SIM900 (see AT command: AT+CSQ) as integer
-	*  @param
-	*  @returns
-	*      true on success
-	*      false on error
-	*/
+	
+	/** get Local DateTime in seconds from SIM900
+     *  @param
+     *  @returns
+     *      true on success
+     *      false on error
+     */  
+	time_t getLocalTime();
+	
+	/** get Local DateTime in seconds from timestamp
+     *  @param
+	 *		*buffer previously stored timestamp
+     *  @returns
+     *      true on success
+     *      false on error
+     */
+	time_t getLocalTime(char *buffer);
+	
+	/** get the time difference in HH:MM:SS format
+     *  @param
+	 *		*diffTime the time difference in seconds between 2 timestamps
+	 *		*buffer human readable format time difference storage
+     *  @returns
+     */
+	void formatDiffTime(time_t diffTime, char *buffer);
 	
 	/** get IMEI from SIM900 (see AT command: AT+GSN) as string
      *  @param

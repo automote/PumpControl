@@ -75,7 +75,8 @@ unsigned int PBEntryIndex = 1;
 byte messageIndex = 0;
 char gsmBuffer[64];
 bool pumpFlag = false;
-char dateTime_buffer[24];
+time_t onTime, offTime;
+char timestamp[24];
 char dateTime[24];
 char providerName[10];
 
@@ -315,7 +316,8 @@ void handleRings(void) {
 	char authString[64];
 	char mobileNumber[16];
 	char *s;
-	s = (char *)malloc(60);
+	s = (char *)malloc(70);
+	char timeDiffString[10];
 	
 	strcpy(authString,gsmBuffer);
 	// count the number of rings till you get RELEASE
@@ -337,11 +339,19 @@ void handleRings(void) {
 			case 2:
 			case 3:
 				state = 1;
-				//gsm.getDateTime(char *buffer)
-				gsm.getDateTime(dateTime);
-				strcpy(dateTime_buffer,dateTime);
+				
 				if(UpdateResource(state)) {
-					strcpy(s,"TURNED ON");
+					// Get timestamp from GSM module
+					// AT+CCLK?
+					gsm.getDateTime(timestamp);
+					// Save the onTime 
+					onTime = gsm.getLocalTime(timestamp);
+#ifdef DEBUG
+					Serial.print(F("local timestamp in seconds "));
+					Serial.println(onTime);
+#endif				
+					strcpy(s,"TURNED ON at ");
+					strcat(s,timestamp);
 					
 					if(smsReplyFlag) {
 						// send SMS
@@ -356,15 +366,35 @@ void handleRings(void) {
 			case 4:
 			case 5:
 				state = 0;
-				char t1buffer[140];
-				strcpy(t1buffer,"THE PUMP IS TURNED OFF.\nTURNED ON TIME IS ");
-				strcat(t1buffer,dateTime_buffer);
+				
 				if(UpdateResource(state)) {
-					strcpy(s,"TURNED OFF");
-
+					// Get timestamp from GSM module
+					// AT+CCLK?
+					gsm.getDateTime(timestamp);
+					// Save the offTime 
+					offTime = gsm.getLocalTime(timestamp);				
+#ifdef DEBUG
+					Serial.print(F("local timestamp in seconds "));
+					Serial.println(offTime);
+#endif				
+					time_t diffTime = difftime(offTime,onTime);
+#ifdef DEBUG
+					Serial.print(F("Turn on time in seconds "));
+					Serial.println(diffTime);
+#endif	
+					strcpy(s,"TURNED OFF at ");
+					strcat(s,timestamp);
+					strcat(s,"\nPUMP turned on for ");
+					gsm.formatDiffTime(diffTime,timeDiffString);
+#ifdef DEBUG
+					Serial.print(F("Difference time string is "));
+					Serial.println(timeDiffString);
+#endif				
+					strcat(s, timeDiffString);
+					
 					if(smsReplyFlag) {
 						// send SMS
-						gsm.sendSMS(mobileNumber,t1buffer);
+						gsm.sendSMS(mobileNumber,s);
 					}
 #ifdef DEBUG
 				Serial.println(F("PUMP turned OFF"));
@@ -475,6 +505,8 @@ void handleSMS(byte messageIndex) {
 	char mobileNumber[16];
 	char newMobileNumber[16];
 	char *s, *p;
+	s = (char *)malloc(70);
+	char timeDiffString[10];
 	char num[4];
 	byte i = 0;
 	
@@ -673,12 +705,23 @@ void handleSMS(byte messageIndex) {
 		}
 		else if(NULL != strstr(message,"TURN ON")) {
 			state = 1;
-				//copy dateTime 
-			strcpy(dateTime_buffer,dateTime);
+
 			if(UpdateResource(state)) {
+				// Get timestamp from GSM module
+				// AT+CCLK?
+				gsm.getDateTime(timestamp);
+				// Save the onTime 
+				onTime = gsm.getLocalTime(timestamp);
+#ifdef DEBUG
+				Serial.print(F("local timestamp in seconds "));
+				Serial.println(onTime);
+#endif				
+				strcpy(s,"TURNED ON at ");
+				strcat(s,timestamp);
+				
 				if(smsReplyFlag) {
 					// send SMS
-					gsm.sendSMS(mobileNumber,"TURNED ON");
+					gsm.sendSMS(mobileNumber,s);
 				}
 			}
 #ifdef DEBUG
@@ -687,13 +730,36 @@ void handleSMS(byte messageIndex) {
 		}
 		else if(NULL != strstr(message,"TURN OFF")) {
 			state = 0;
-			char tbuffer[100]="PUMP IS TURNED OFF. TURNED ON TIME IS ";
-			strcat(tbuffer,dateTime_buffer);
+			
 			if(UpdateResource(state)) {
+				// Get timestamp from GSM module
+				// AT+CCLK?
+				gsm.getDateTime(timestamp);
+				// Save the offTime 
+				offTime = gsm.getLocalTime(timestamp);				
+#ifdef DEBUG
+				Serial.print(F("local timestamp in seconds "));
+				Serial.println(offTime);
+#endif				
+				time_t diffTime = difftime(offTime,onTime);
+#ifdef DEBUG
+				Serial.print(F("Turn on time in seconds "));
+				Serial.println(diffTime);
+#endif	
+				strcpy(s,"TURNED OFF at ");
+				strcat(s,timestamp);
+				strcat(s,"\nPUMP turned on for ");
+				gsm.formatDiffTime(diffTime,timeDiffString);
+#ifdef DEBUG
+				Serial.print(F("Difference time string is "));
+				Serial.println(timeDiffString);
+#endif				
+				strcat(s, timeDiffString);
+				
 				if(smsReplyFlag) {
 					// send SMS   
-         Serial.println("sending SMS");
-         gsm.sendSMS(mobileNumber,tbuffer);
+					Serial.println("sending SMS");
+					gsm.sendSMS(mobileNumber,s);
 				}
 
 			}
